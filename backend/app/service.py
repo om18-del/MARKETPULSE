@@ -14,6 +14,7 @@ from typing import Any
 
 from .ai import analysis as ai_analysis
 from .ai import assistant as ai_assistant
+from .ai import prism
 from .ai.gemini_client import get_gemini
 from .core.config import get_settings
 from .data.aggregator import get_aggregator
@@ -192,6 +193,8 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
         return _hit[1]
 
     _progress_start(inst.id)
+    # PRISM: one trajectory per analysis run, named for the asset
+    prism.new_session(f"analysis-{inst.id}")
 
     hist, used_demo = await _history_with_demo(inst.id)
     rows = hist["rows"]
@@ -524,6 +527,7 @@ def fx_convert(amount: float, from_cur: str, to_cur: str, rates: dict) -> dict[s
 
 
 async def recap() -> dict[str, Any]:
+    prism.new_session("daily-recap")
     ov = await overview()
     data = {"global": ov["global"], "movers": ov["movers"],
             "breadth": ov["breadth"], "vix": ov["vix"], "data_mode": ov["data_mode"]}
@@ -533,6 +537,8 @@ async def recap() -> dict[str, Any]:
 
 
 async def chat(question: str, instrument_id: str | None = None) -> dict[str, Any]:
+    # PRISM: each chat exchange is one run -> its own trajectory
+    prism.new_session("chat")
     context: dict[str, Any] = {}
     if instrument_id and instrument_id in ALL:
         detail = await full_analysis(instrument_id)
@@ -555,14 +561,17 @@ async def chat(question: str, instrument_id: str | None = None) -> dict[str, Any
 
 
 async def assistant_explain(selected_text: str, context: dict | None) -> dict[str, Any]:
+    prism.new_session("assistant-explain")
     return await ai_assistant.explain_snippet(get_gemini(), selected_text, context)
 
 
 async def assistant_ask(question: str) -> dict[str, Any]:
+    prism.new_session("assistant-qa")
     return await ai_assistant.general_qa(get_gemini(), question)
 
 
 async def analyze_image(image_bytes: bytes, mime: str) -> dict[str, Any]:
+    prism.new_session("image-analysis")
     gemini = get_gemini()
     prompt = (
         "You are MarketPulse's educational image analyst. A user uploaded this image "

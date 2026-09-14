@@ -16,14 +16,38 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextvars import ContextVar
 from typing import Any
 
 log = logging.getLogger("marketpulse.prism")
 
 _client: Any | None = None
 _client_checked = False
-_session = "marketpulse-api"
 _bg_tasks: set[asyncio.Task] = set()  # keep refs so tasks aren't GC'd mid-flight
+
+# Per-request session id (contextvar => safe under concurrent requests; each
+# asyncio task inherits the value set in its parent context). One value per
+# conversation/run is what groups traces into PRISM trajectories.
+_session_var: ContextVar[str] = ContextVar("prism_session", default="marketpulse-api")
+
+
+def set_session(session_id: str) -> None:
+    """Bind subsequent LLM traces (this request/task) to one trajectory."""
+    if session_id:
+        _session_var.set(session_id)
+
+
+def current_session() -> str:
+    return _session_var.get()
+
+
+def new_session(prefix: str) -> str:
+    """Create + bind a fresh session id for one conversation/run."""
+    import uuid
+
+    sid = f"{prefix}-{uuid.uuid4().hex[:12]}"
+    set_session(sid)
+    return sid
 
 
 def _get() -> Any | None:
@@ -50,17 +74,6 @@ def _get() -> Any | None:
     return _client
 
 
-def set_session(session_id: str) -> None:
-    """Group subsequent LLM traces under one trajectory id."""
-    global _session
-    if session_id:
-        _session = session_id
-
-
-def current_session() -> str:
-    return _session
-
-
 async def emit_llm(*, model: str, prompt: str, output: str, latency_ms: float,
                    session: str | None = None, metadata: dict | None = None) -> None:
     """Send one LLM-call trace. Fire-and-forget: errors are logged, never raised."""
@@ -75,8 +88,8 @@ async def emit_llm(*, model: str, prompt: str, output: str, latency_ms: float,
             output=str(output)[:8000],
             latency_ms=int(latency_ms),
             agent_name="marketpulse",
-            session_id=session or _session,
-            metadata=metadata or {},
+            session_id=session or _session_var.get(),
+            metadata={"session_id": session or _session_var.get(), **(metadata or {})},
         )
         pt.flush(timeout=2.0)
 
