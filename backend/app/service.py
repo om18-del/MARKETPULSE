@@ -397,7 +397,22 @@ def _progress_done(instrument_id: str) -> None:
 def analysis_progress(instrument_id: str) -> dict[str, Any]:
     """Time-remaining feed for the deep-analysis endpoint (polled by the UI)."""
     if instrument_id not in ALL:
-        raise ValueError(f"unknown instrument: {instrument_id}")
+        # Dynamic ids (nse-*/bse-* from the live universe) resolve the same
+        # way full_analysis() resolves them — otherwise the UI's time-remaining
+        # poll 404s for exactly the stocks users search for.
+        from .data.aggregator import get_aggregator
+        import asyncio as _asyncio
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            # inside an event loop: cannot block; validate cheaply and fall through
+            pass
+        else:
+            resolved = _asyncio.run(get_aggregator().dynamic_instrument(instrument_id))
+            if resolved is None:
+                raise ValueError(f"unknown instrument: {instrument_id}")
     if analysis_is_cached(instrument_id):
         return {
             "active": False, "done": True, "cached": True, "stage": "ready",
@@ -431,7 +446,10 @@ def analysis_progress(instrument_id: str) -> dict[str, Any]:
 def analysis_is_cached(instrument_id: str) -> bool:
     inst = ALL.get(instrument_id)
     if not inst:
-        return False
+        # dynamic nse-*/bse-* ids canonicalize to lowercase-symbol ids —
+        # check that cache key directly (no async resolution needed)
+        hit = _ANALYSIS_CACHE.get(f"analysis:{instrument_id.lower()}")
+        return bool(hit and time.monotonic() - hit[0] < 300)
     hit = _ANALYSIS_CACHE.get(f"analysis:{inst.id}")
     return bool(hit and time.monotonic() - hit[0] < 300)
 

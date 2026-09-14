@@ -14,6 +14,7 @@ import { MethodologyPage } from './pages/Methodology'
 import { AboutPage } from './pages/About'
 import { PulseAssistant } from './components/PulseAssistant'
 import { DisclaimerBar, DisclaimerModal } from './components/Disclaimer'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: Globe2 },
@@ -81,19 +82,21 @@ export default function App() {
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.22 }}
         >
-          <Routes location={location}>
-            <Route path="/" element={<OverviewPage onExplain={setExplainText} />} />
-            <Route path="/asset/:id" element={<AssetDetailPage onExplain={setExplainText} />} />
-            <Route path="/compare" element={<ComparePage />} />
-            <Route path="/fx" element={<FXPage onExplain={setExplainText} />} />
-            <Route path="/news" element={<NewsPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/learn" element={<LearnPage />} />
-            <Route path="/dictionary" element={<DictionaryPage onExplain={setExplainText} />} />
-            <Route path="/methodology" element={<MethodologyPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="*" element={<OverviewPage onExplain={setExplainText} />} />
-          </Routes>
+          <ErrorBoundary name="Page">
+            <Routes location={location}>
+              <Route path="/" element={<OverviewPage onExplain={setExplainText} />} />
+              <Route path="/asset/:id" element={<AssetDetailPage onExplain={setExplainText} />} />
+              <Route path="/compare" element={<ComparePage />} />
+              <Route path="/fx" element={<FXPage onExplain={setExplainText} />} />
+              <Route path="/news" element={<NewsPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/learn" element={<LearnPage />} />
+              <Route path="/dictionary" element={<DictionaryPage onExplain={setExplainText} />} />
+              <Route path="/methodology" element={<MethodologyPage />} />
+              <Route path="/about" element={<AboutPage />} />
+              <Route path="*" element={<OverviewPage onExplain={setExplainText} />} />
+            </Routes>
+          </ErrorBoundary>
         </motion.main>
       </AnimatePresence>
 

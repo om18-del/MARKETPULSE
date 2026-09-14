@@ -12,6 +12,7 @@ import { ImageAnalyzer } from '../components/ImageAnalyzer'
 import { LoadingProgress } from '../components/LoadingProgress'
 import { OutlookCard } from '../components/OutlookCard'
 import { CardSkeleton } from '../components/Skeletons'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import type { Analysis, AssetDetail } from '../types'
 
 function AnalysisMethodChip({ analysis }: { analysis?: Analysis | null }) {
@@ -78,7 +79,11 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
 
       {/* Chart loads immediately from the lightweight asset endpoint */}
       <section className="section">
-        <div className="card">{d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}</div>
+        <div className="card">
+          <ErrorBoundary name="PriceChart">
+            {d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}
+          </ErrorBoundary>
+        </div>
       </section>
 
       {/* Live progress: stage + time remaining for the deep analysis */}

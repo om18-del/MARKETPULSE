@@ -114,19 +114,40 @@ class IndiaStore:
 
     # --------------------------------------------------------- bhavcopy --
     async def bhavcopy(self, d: date) -> dict[str, dict] | None:
-        """All traded NSE equities for date d: {SYMBOL: row}. None if absent."""
+        """All traded NSE equities for date d: {SYMBOL: row}. None if absent.
+
+        Alias guard: NSE's CDN can answer 200 with the LATEST file for URLs
+        whose date has no file yet (verified: sec_bhavdata_full_14092026.csv
+        returned byte-identical content to the 11092026 file). We therefore
+        trust the DATE1 column inside the file, never the URL — a file whose
+        internal date differs from the requested date is treated as absent.
+        Without this, history rows contain duplicate dates and the UI chart
+        crashes on non-unique timestamps.
+        """
         if d in self._bhavcopy:
             return self._bhavcopy[d]
         url = f"{ARCHIVES}/products/content/sec_bhavdata_full_{d:%d%m%Y}.csv"
         text = await self._get(url)
         parsed = _parse_bhavcopy(text) if text else None
+        if parsed:
+            internal = next(iter(parsed.values())).get("date")
+            if internal != d.isoformat():
+                self.last_error = (
+                    f"bhavcopy alias for {d.isoformat()} served data of {internal}; ignored"
+                )
+                parsed = None
         self._bhavcopy[d] = parsed
         return parsed
 
     async def bhavcopy_dates(self, want: int = 75) -> list[date]:
-        """Newest-first dates that actually have a bhavcopy (probes until `want`)."""
+        """Newest-first dates that actually have a bhavcopy (probes until `want`).
+
+        The +30 slack absorbs weekends, exchange holidays and the CDN's
+        aliased-200 trick (those URLs yield no file now that the alias
+        guard rejects them).
+        """
         dates: list[date] = []
-        for d in self.recent_weekdays(want + 12):
+        for d in self.recent_weekdays(want + 30):
             if len(dates) >= want:
                 break
             got = await self.bhavcopy(d)
@@ -136,12 +157,23 @@ class IndiaStore:
 
     # ----------------------------------------------------------- indices --
     async def indices(self, d: date) -> dict[str, dict] | None:
-        """All NSE indices for date d: {'NIFTY 50': row, ...}. None if absent."""
+        """All NSE indices for date d: {'NIFTY 50': row, ...}. None if absent.
+
+        Same alias guard as bhavcopy(): the file's internal 'Index Date' must
+        match the requested date, else the payload is treated as absent.
+        """
         if d in self._indices:
             return self._indices[d]
         url = f"{ARCHIVES}/content/indices/ind_close_all_{d:%d%m%Y}.csv"
         text = await self._get(url)
         parsed = _parse_indices(text) if text else None
+        if parsed:
+            internal = next(iter(parsed.values())).get("date")
+            if internal != d.isoformat():
+                self.last_error = (
+                    f"index-file alias for {d.isoformat()} served data of {internal}; ignored"
+                )
+                parsed = None
         self._indices[d] = parsed
         return parsed
 
@@ -174,34 +206,38 @@ class IndiaStore:
 
     # ----------------------------------------------------------- history --
     async def stock_history(self, symbol: str, min_bars: int = 70) -> list[dict]:
-        """Chronological daily bars for an NSE symbol from bhavcopy files."""
+        """Chronological daily bars for an NSE symbol from bhavcopy files.
+
+        Keyed by the row's internal date, so the output can never contain a
+        duplicated timestamp even if two day-URLs alias to the same file.
+        """
         symbol = symbol.upper().strip()
         dates = await self.bhavcopy_dates(want=min_bars + 15)
-        rows: list[dict] = []
+        by_date: dict[str, dict] = {}
         for d in reversed(dates):  # oldest -> newest
             table = await self.bhavcopy(d)
             row = (table or {}).get(symbol)
             if row:
-                rows.append(row)
-        return rows
+                by_date[row["date"]] = row
+        return list(by_date.values())
 
     async def index_history(self, index_name: str, min_bars: int = 70) -> list[dict]:
         """Chronological daily bars for an NSE index from ind_close_all files."""
         dates: list[date] = []
-        for d in self.recent_weekdays(min_bars + 15):
+        for d in self.recent_weekdays(min_bars + 30):
             got = await self.indices(d)
             if got:
                 dates.append(d)
             if len(dates) >= min_bars + 10:
                 break
         index_name = index_name.upper().strip()
-        rows: list[dict] = []
+        by_date: dict[str, dict] = {}
         for d in reversed(dates):
             table = await self.indices(d)
             row = (table or {}).get(index_name)
             if row:
-                rows.append(row)
-        return rows
+                by_date[row["date"]] = row
+        return list(by_date.values())
 
     # ----------------------------------------------------------- movers --
     async def movers(self) -> dict[str, Any]:

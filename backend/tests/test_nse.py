@@ -293,3 +293,82 @@ def test_breaker_half_open_probe():
     br.opened_at -= 61.0
     br.record_success()
     assert br.is_open is False and br.failures == 0
+
+
+# --------------------------------------------- NSE CDN alias guard (bug) ---
+def _bhav_table(d: date, close: float) -> str:
+    head = ("SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, "
+            "LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE, TTL_TRD_QNTY, "
+            "TURNOVER_LACS, NO_OF_TRADES, D\n")
+    return head + (f"TCS, EQ, {d:%d-%m-%Y}, {close - 10}, {close - 5}, {close + 5}, "
+                   f"{close - 8}, {close}, {close}, 100.0, 500000, 15000.0, 50000, .")
+
+
+def test_bhavcopy_alias_guard_rejects_wrong_internal_date():
+    """NSE's CDN serves the LATEST file (HTTP 200) for URLs whose date has no
+    file yet. The store must treat such aliased payloads as absent, else
+    history gains duplicated dates and the UI chart crashes."""
+    requested = date(2026, 9, 14)      # no file yet -> CDN aliases
+    internal = date(2026, 9, 11)       # the file it actually contains
+    store = IndiaStore()
+
+    async def fake_get(url, **kw):
+        return _bhav_table(internal, 2200.8)
+
+    store._get = fake_get  # type: ignore[method-assign]
+    out = asyncio.run(store.bhavcopy(requested))
+    assert out is None, "aliased payload must be rejected"
+    assert store.last_error and "alias" in store.last_error
+
+
+def test_bhavcopy_accepts_matching_internal_date():
+    d = date(2026, 9, 11)
+    store = IndiaStore()
+
+    async def fake_get(url, **kw):
+        return _bhav_table(d, 2200.8)
+
+    store._get = fake_get  # type: ignore[method-assign]
+    out = asyncio.run(store.bhavcopy(d))
+    assert out is not None and "TCS" in out
+
+
+def test_stock_history_never_duplicates_dates():
+    """Two URL-days aliasing to the same file content -> exactly one bar."""
+    d_real = date(2026, 9, 11)
+    d_alias = date(2026, 9, 14)
+    store = IndiaStore()
+
+    async def fake_bhavcopy(d):
+        return _parse_bhavcopy(_bhav_table(d_real, 2200.8))
+
+    store.bhavcopy = fake_bhavcopy  # type: ignore[method-assign]
+    store.bhavcopy_dates = _fake_dates_wrapper(store)  # type: ignore[method-assign]
+    rows = asyncio.run(store.stock_history("TCS", min_bars=2))
+    dates = [r["date"] for r in rows]
+    assert dates == [d_real.isoformat()], "one deduplicated bar expected"
+
+
+# --------------------------------- progress endpoint for dynamic ids (bug) --
+def test_analysis_progress_accepts_dynamic_nse_id():
+    """The UI polls /analysis/<id>/progress for searched stocks (dynamic
+    nse-* ids); it must resolve them instead of 404-ing."""
+    from app import service
+
+    class FakeAgg:
+        async def dynamic_instrument(self, uid):
+            from app.data.registry import Instrument
+            return Instrument(
+                id=uid, name="Tata Consultancy Services", category="stock",
+                region="india", currency="INR", stooq=None, twelvedata=None,
+                finnhub=None, alphavantage=None, nse="TCS", weight=0.6,
+                keywords=("tcs",))
+
+    real = service.get_aggregator
+    service.get_aggregator = lambda: FakeAgg()  # type: ignore[assignment]
+    try:
+        out = service.analysis_progress("nse-tcs")  # outside a loop: resolves
+    finally:
+        service.get_aggregator = real
+    assert out.get("stage") in {"queued", "ready"} or out.get("active") in {True, False}
+    assert "pct" in out and "seconds_remaining" in out
