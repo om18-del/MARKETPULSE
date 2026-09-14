@@ -82,8 +82,9 @@ class GeminiClient:
 
                     text = await asyncio.to_thread(_call)
                     self._cache.set(cache_key, text, ttl)
-                    # PRISM: forward the real call (fail-open, never blocks)
-                    await prism.emit_llm(
+                    # PRISM: forward the real call (fail-open, never blocks,
+                    # never adds latency to the user's response)
+                    prism.emit_llm_bg(
                         model=model, prompt=prompt, output=text,
                         latency_ms=(prism.now_ms() - t0),
                         metadata={"attempt": attempt + 1, "cached": False},
@@ -150,7 +151,7 @@ class GeminiClient:
 
         text = await asyncio.to_thread(_call)
         self._cache.set(cache_key, text, 600)
-        await prism.emit_llm(
+        prism.emit_llm_bg(
             model=self.model_name, prompt=prompt, output=text,
             latency_ms=(prism.now_ms() - t0_img), metadata={"vision": True},
         )

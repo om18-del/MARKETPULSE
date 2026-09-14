@@ -23,6 +23,7 @@ log = logging.getLogger("marketpulse.prism")
 _client: Any | None = None
 _client_checked = False
 _session = "marketpulse-api"
+_bg_tasks: set[asyncio.Task] = set()  # keep refs so tasks aren't GC'd mid-flight
 
 
 def _get() -> Any | None:
@@ -83,6 +84,22 @@ async def emit_llm(*, model: str, prompt: str, output: str, latency_ms: float,
         await asyncio.to_thread(_post)
     except Exception as exc:
         log.debug("PRISM trace dropped: %s", exc)
+
+
+def emit_llm_bg(*, model: str, prompt: str, output: str, latency_ms: float,
+                session: str | None = None, metadata: dict | None = None) -> None:
+    """Schedule a trace without awaiting it — zero added request latency
+    even when PRISM's ingest is slow. Errors are logged, never raised."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no loop (e.g. sync context): skip rather than block
+    task = loop.create_task(emit_llm(
+        model=model, prompt=prompt, output=output, latency_ms=latency_ms,
+        session=session, metadata=metadata,
+    ))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 def now_ms() -> float:
