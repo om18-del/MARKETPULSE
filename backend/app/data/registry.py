@@ -52,22 +52,6 @@ class Instrument:
 
 
 REGISTRY: dict[str, Instrument] = {i.id: i for i in [
-    # ---------------------------- US indices ----------------------------
-    Instrument("sp500", "S&P 500", "index", "us", "USD",
-               stooq="^usl20", twelvedata="SPX", finnhub=None, alphavantage="SPX",
-               weight=1.5, keywords=("spx", "s&p", "standard and poors", "us market")),
-    Instrument("nasdaq", "Nasdaq 100", "index", "us", "USD",
-               stooq="^ndx", twelvedata="NDX", finnhub=None, alphavantage="NDX",
-               weight=1.4, keywords=("nasdaq", "ndx", "tech stocks")),
-    Instrument("dowjones", "Dow Jones Industrial", "index", "us", "USD",
-               stooq="^dji", twelvedata="DJI", finnhub=None, alphavantage="DJI",
-               weight=1.3, keywords=("dow", "dji", "industrial average")),
-    Instrument("russell2000", "Russell 2000", "index", "us", "USD",
-               stooq="^rut", twelvedata=None, finnhub=None, alphavantage="RUT",
-               weight=1.0, keywords=("russell", "small cap")),
-    Instrument("vix", "VIX (Volatility Index)", "volatility", "us", "USD",
-               stooq="^vix", twelvedata="VIX", finnhub=None, alphavantage="VIXY",
-               weight=1.2, keywords=("volatility", "fear index", "vix")),
     # --------------------------- India indices --------------------------
     # All Indian data is fetched DIRECTLY from nseindia.com (keyless) —
     # see providers/nse.py. Stooq kept only as a fallback for these.
@@ -100,8 +84,24 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
                weight=0.9, keywords=("smallcap", "small cap")),
     Instrument("niftyfin", "NIFTY Financial Services", "index", "india", "INR",
                stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
-               nse_index="NIFTY FIN SERVICE",
+               nse_index="NIFTY FINANCIAL SERVICES",
                weight=1.1, keywords=("financial services", "finnifty")),
+    # ---------------------------- US indices ----------------------------
+    Instrument("sp500", "S&P 500", "index", "us", "USD",
+               stooq="^usl20", twelvedata="SPX", finnhub=None, alphavantage="SPX",
+               weight=1.5, keywords=("spx", "s&p", "standard and poors", "us market")),
+    Instrument("nasdaq", "Nasdaq 100", "index", "us", "USD",
+               stooq="^ndx", twelvedata="NDX", finnhub=None, alphavantage="NDX",
+               weight=1.4, keywords=("nasdaq", "ndx", "tech stocks")),
+    Instrument("dowjones", "Dow Jones Industrial", "index", "us", "USD",
+               stooq="^dji", twelvedata="DJI", finnhub=None, alphavantage="DJI",
+               weight=1.3, keywords=("dow", "dji", "industrial average")),
+    Instrument("russell2000", "Russell 2000", "index", "us", "USD",
+               stooq="^rut", twelvedata=None, finnhub=None, alphavantage="RUT",
+               weight=1.0, keywords=("russell", "small cap")),
+    Instrument("vix", "VIX (Volatility Index)", "volatility", "us", "USD",
+               stooq="^vix", twelvedata="VIX", finnhub=None, alphavantage="VIXY",
+               weight=1.2, keywords=("volatility", "fear index", "vix")),
     # --------------------------- Europe indices -------------------------
     Instrument("ftse100", "FTSE 100", "index", "europe", "GBp",
                stooq="^ukx", twelvedata=None, finnhub=None, alphavantage=None,
