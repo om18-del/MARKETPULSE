@@ -349,6 +349,58 @@ def test_stock_history_never_duplicates_dates():
     assert dates == [d_real.isoformat()], "one deduplicated bar expected"
 
 
+# ------------------------------------------------ Yahoo provider (real data) --
+def test_yahoo_provider_parses_history():
+    """Chart-API payload -> unique ascending OHLCV rows (offline fixture)."""
+    from app.data.providers.yahoo import YahooChartProvider
+
+    payload = {
+        "chart": {"result": [{
+            "timestamp": [1800000000, 1800086400, 1800172800, 1800172800],
+            "indicators": {"quote": [{
+                "open": [100.0, 101.0, 102.0, 102.0],
+                "high": [105.0, 106.0, 107.0, 107.0],
+                "low": [99.0, 100.0, 101.0, 101.0],
+                "close": [104.0, 105.0, None, 106.0],   # null placeholder dropped
+                "volume": [1000, 2000, 3000, 3000],
+            }]},
+        }]}
+    }
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return payload
+
+    class FakeClient:
+        async def get(self, url, params=None):
+            return FakeResp()
+
+    p = YahooChartProvider(http=FakeClient())  # type: ignore[arg-type]
+    rows = asyncio.run(p.fetch_history("^BSESN"))
+    assert len(rows) == 3, "null bar and duplicate day dropped"
+    dates = [r["date"] for r in rows]
+    assert dates == sorted(dates) and len(set(dates)) == len(dates)
+    assert rows[-1]["close"] == 106.0
+
+
+def test_sensex_and_globals_have_yahoo_symbols():
+    """Every formerly-demo instrument maps to a real Yahoo symbol."""
+    for aid in ["sensex", "sp500", "nasdaq", "dowjones", "russell2000", "vix",
+                "ftse100", "dax", "cac40", "eurostoxx50", "nikkei225",
+                "hangseng", "kospi", "asx200", "crude", "dxy", "us10y"]:
+        inst = get(aid)
+        assert inst is not None and getattr(inst, "yahoo", None), f"{aid} missing yahoo symbol"
+
+
+def test_aggregator_tries_yahoo_before_stooq():
+    """Global chain order: Yahoo (keyless, real) first, Stooq after."""
+    from app.data.aggregator import Aggregator
+    agg = Aggregator()
+    names = [p.name for p in agg.providers]
+    assert names.index("yahoo") < names.index("stooq")
+
+
 # --------------------------------- progress endpoint for dynamic ids (bug) --
 def test_analysis_progress_accepts_dynamic_nse_id():
     """The UI polls /analysis/<id>/progress for searched stocks (dynamic

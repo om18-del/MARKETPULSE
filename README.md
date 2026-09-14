@@ -56,12 +56,12 @@ Works **immediately with zero API keys** (keyless market + FX data). Add a Gemin
 | `TWELVEDATA_API_KEY` | optional | [twelvedata.com](https://twelvedata.com) | 800/day |
 | `FINNHUB_API_KEY` | optional | [finnhub.io](https://finnhub.io) | 60/min |
 | `ALPHAVANTAGE_API_KEY` | optional | [alphavantage.co](https://www.alphavantage.co) | 25/day |
-| *(NSE archives + Dhan master + Stooq + Frankfurter/ECB)* | **none needed** | — | keyless primaries |
+| *(NSE archives + Dhan master + Yahoo chart API + Frankfurter/ECB)* | **none needed** | — | keyless primaries |
 
-**Data pipeline (no Yahoo, no scraping):**
+**Data pipeline (keyless primaries, zero scraping):**
 
 * **India (primary):** official NSE EOD files — daily bhavcopy (`sec_bhavdata_full_*.csv`, every traded NSE equity with OHLC/prev-close/volume/trades) + `ind_close_all_*.csv` (every NSE index incl. NIFTY family) + NIFTY 50 constituents. The **entire listed universe (~2000 NSE companies)** is searchable via the Dhan public scrip master (symbol → company name). All keyless; files are published by the exchange itself, so dates are always honest ("EOD 11-Sep-2026").
-* **Global:** Stooq (keyless) → Frankfurter/ECB (keyless FX) → Twelve Data → Finnhub → Alpha Vantage. Per-provider circuit breakers (open → half-open probe → re-open).
+* **Global:** Yahoo chart API (keyless: ^BSESN SENSEX, ^GSPC, ^NDX, ^DJI, ^N225, CL=F, DX-Y.NYB, ^TNX, FX…) → Stooq → Frankfurter/ECB (keyless FX) → Twelve Data → Finnhub → Alpha Vantage. Per-provider circuit breakers (open → half-open probe → re-open). With keyless primaries every board instrument serves real exchange data; Demo Mode remains as a clearly-labeled last resort.
 * **Price verification:** every analysis payload states its provider and exact data date; `/api/nse/status` exposes pipeline health, and closes are cross-checked across the two independent NSE files.
 
 **Defaults:** base currency **INR**, news topic **India**, FX panel base **INR**.
@@ -90,7 +90,7 @@ MARKETPULSE/
 │   ├── app/core/             config, TTL cache + circuit breakers
 │   ├── app/data/             registry · india_store (NSE bhavcopy + indices +
 │   │                         NIFTY constituents + Dhan universe) · providers/
-│   │                         (stooq, frankfurter, twelvedata, finnhub, alphavantage)
+│   │                         (yahoo, stooq, frankfurter, twelvedata, finnhub, alphavantage)
 │   │                         aggregator (India-first fallback chain) · validation
 │   ├── app/engines/          indicators · filters · regime · breadth · fx
 │   ├── app/news/             rss (Google News) · analyzer (Gemini + keyword fallback)

@@ -3,8 +3,10 @@
 India-first routing:
 * Indian instruments -> IndiaStore (official NSE EOD files: the daily
   bhavcopy + ind_close_all index file, keyless, honest data dates).
-* Global instruments -> Stooq -> Frankfurter(FX) -> Twelve Data -> Finnhub
-  -> Alpha Vantage (each behind a circuit breaker; keyless first).
+* Global instruments -> Yahoo chart API (keyless, real exchange data for
+  every global index/commodity/rate) -> Stooq -> Frankfurter(FX)
+  -> Twelve Data -> Finnhub -> Alpha Vantage (each behind a circuit
+  breaker; keyless first).
 
 Every result carries provenance (provider, data date, cache age) so the UI
 can show honest labels. If every provider fails for an instrument, callers
@@ -26,6 +28,7 @@ from .providers import (
     ProviderError,
     StooqProvider,
     TwelveDataProvider,
+    YahooChartProvider,
 )
 from .registry import ALL, Instrument, symbol_for
 from .validation import derive_quote, sanitize_ohlcv
@@ -37,6 +40,7 @@ class Aggregator:
         self.settings = s
         self.india = get_store()
         self.providers = [
+            YahooChartProvider(),   # keyless real data for every global instrument
             StooqProvider(),
             FrankfurterProvider(),  # keyless ECB FX — keeps FX alive without any keys
             TwelveDataProvider(),

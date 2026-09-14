@@ -35,6 +35,7 @@ class Instrument:
     frankfurter: Optional[str] = None  # ECB keyless FX provider (pairs like "USD:INR")
     nse: Optional[str] = None            # NSE equity symbol (e.g. "RELIANCE")
     nse_index: Optional[str] = None      # NSE index name (e.g. "NIFTY 50")
+    yahoo: Optional[str] = None          # Yahoo Finance chart symbol (e.g. "^BSESN")
     weight: float = 1.0     # influence on global regime blend
     fx_pair: bool = False
     keywords: tuple[str, ...] = field(default_factory=tuple)  # search hints
@@ -61,6 +62,7 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
                weight=1.5, keywords=("nifty", "nse", "india market")),
     Instrument("sensex", "BSE SENSEX", "index", "india", "INR",
                stooq="^snx", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^BSESN",
                weight=1.4, keywords=("sensex", "bse", "mumbai")),
     Instrument("niftybank", "NIFTY Bank", "index", "india", "INR",
                stooq="^banknifty", twelvedata=None, finnhub=None, alphavantage=None,
@@ -89,44 +91,57 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
     # ---------------------------- US indices ----------------------------
     Instrument("sp500", "S&P 500", "index", "us", "USD",
                stooq="^usl20", twelvedata="SPX", finnhub=None, alphavantage="SPX",
+               yahoo="^GSPC",
                weight=1.5, keywords=("spx", "s&p", "standard and poors", "us market")),
     Instrument("nasdaq", "Nasdaq 100", "index", "us", "USD",
                stooq="^ndx", twelvedata="NDX", finnhub=None, alphavantage="NDX",
+               yahoo="^NDX",
                weight=1.4, keywords=("nasdaq", "ndx", "tech stocks")),
     Instrument("dowjones", "Dow Jones Industrial", "index", "us", "USD",
                stooq="^dji", twelvedata="DJI", finnhub=None, alphavantage="DJI",
+               yahoo="^DJI",
                weight=1.3, keywords=("dow", "dji", "industrial average")),
     Instrument("russell2000", "Russell 2000", "index", "us", "USD",
                stooq="^rut", twelvedata=None, finnhub=None, alphavantage="RUT",
+               yahoo="^RUT",
                weight=1.0, keywords=("russell", "small cap")),
     Instrument("vix", "VIX (Volatility Index)", "volatility", "us", "USD",
                stooq="^vix", twelvedata="VIX", finnhub=None, alphavantage="VIXY",
+               yahoo="^VIX",
                weight=1.2, keywords=("volatility", "fear index", "vix")),
     # --------------------------- Europe indices -------------------------
     Instrument("ftse100", "FTSE 100", "index", "europe", "GBp",
                stooq="^ukx", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^FTSE",
                weight=1.0, keywords=("ftse", "london", "uk market")),
     Instrument("dax", "DAX (Germany)", "index", "europe", "EUR",
                stooq="^dax", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^GDAXI",
                weight=1.0, keywords=("dax", "germany", "frankfurt")),
     Instrument("cac40", "CAC 40 (France)", "index", "europe", "EUR",
                stooq="^cac", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^FCHI",
                weight=0.9, keywords=("cac", "france", "paris")),
     Instrument("eurostoxx50", "Euro Stoxx 50", "index", "europe", "EUR",
                stooq="^stx50e", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^STOXX50E",
                weight=0.9, keywords=("stoxx", "eurozone", "europe")),
     # --------------------------- APAC indices ---------------------------
     Instrument("nikkei225", "Nikkei 225 (Japan)", "index", "apac", "JPY",
                stooq="^nkx", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^N225",
                weight=1.0, keywords=("nikkei", "japan", "tokyo")),
     Instrument("hangseng", "Hang Seng (Hong Kong)", "index", "apac", "HKD",
                stooq="^hsi", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^HSI",
                weight=0.9, keywords=("hang seng", "hong kong", "hsi")),
     Instrument("kospi", "KOSPI (South Korea)", "index", "apac", "KRW",
                stooq="^kospi", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^KS11",
                weight=0.7, keywords=("kospi", "korea", "seoul")),
     Instrument("asx200", "S&P/ASX 200 (Australia)", "index", "apac", "AUD",
                stooq="^axjo", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^AXJO",
                weight=0.7, keywords=("asx", "australia", "sydney")),
     # ------------------------- Macro / commodities ----------------------
     Instrument("gold", "Gold (Spot)", "commodity", "macro", "USD",
@@ -135,12 +150,15 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
                keywords=("gold", "bullion", "xau")),
     Instrument("crude", "Crude Oil WTI", "commodity", "macro", "USD",
                stooq="cl.f", twelvedata="WTI/USD", finnhub=None, alphavantage=None,
+               yahoo="CL=F",
                weight=1.0, keywords=("oil", "crude", "wti", "petroleum")),
     Instrument("dxy", "US Dollar Index", "fx", "macro", "USD",
                stooq="^dxy", twelvedata=None, finnhub=None, alphavantage="DX-Y.NYB",
+               yahoo="DX-Y.NYB",
                weight=1.2, keywords=("dollar index", "dxy", "usd strength")),
     Instrument("us10y", "US 10-Year Treasury Yield", "rate", "macro", "%",
                stooq="10yusy.b", twelvedata=None, finnhub=None, alphavantage=None,
+               yahoo="^TNX",
                weight=1.2, keywords=("treasury", "bond yield", "10 year", "interest rates")),
     # ------------------------------ FX pairs ----------------------------
     Instrument("usdinr", "USD/INR", "fx", "fx", "INR",
@@ -232,7 +250,7 @@ EXTRA_STOCKS: dict[str, Instrument] = {i.id: i for i in [
 
 ALL: dict[str, Instrument] = {**REGISTRY, **EXTRA_STOCKS}
 
-PROVIDERS = ("nse", "stooq", "twelvedata", "finnhub", "alphavantage")
+PROVIDERS = ("nse", "yahoo", "stooq", "twelvedata", "finnhub", "alphavantage")
 
 
 def get(instrument_id: str) -> Instrument | None:

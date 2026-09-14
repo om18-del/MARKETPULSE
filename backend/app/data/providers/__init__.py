@@ -12,6 +12,7 @@ from .twelvedata import TwelveDataProvider
 from .finnhub import FinnhubProvider
 from .alphavantage import AlphaVantageProvider
 from .frankfurter import FrankfurterProvider
+from .yahoo import YahooChartProvider
 
 __all__ = [
     "ProviderError",
@@ -20,4 +21,5 @@ __all__ = [
     "FinnhubProvider",
     "AlphaVantageProvider",
     "FrankfurterProvider",
+    "YahooChartProvider",
 ]
