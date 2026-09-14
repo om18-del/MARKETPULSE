@@ -5,14 +5,15 @@ export function AboutPage() {
   return (
     <div>
       <h1 className="page-title">About MarketPulse</h1>
-      <p className="page-sub">An AI market-literacy platform that brings scattered market signals into one explainable view.</p>
+      <p className="page-sub">An AI market-literacy platform for the Indian market (NSE): every NSE-listed company, keyless data straight from nseindia.com, INR by default — and every verdict backed by visible evidence.</p>
 
       <div className="grid cols-2">
         <div className="card">
           <div className="card-title">What MarketPulse IS</div>
           <ul style={{ fontSize: 13.5, color: 'var(--text-dim)', paddingLeft: 18, lineHeight: 1.9 }}>
-            <li>A decision-<b>support</b> and learning tool for beginners</li>
-            <li>A multi-asset view: indices, volatility, commodities, rates, FX</li>
+            <li>A decision-<b>support</b> and learning tool for Indian retail investors</li>
+            <li>India-first: NIFTY family, NSE equities and USD/INR lead every read — with global context alongside</li>
+            <li>Data <b>directly from nseindia.com</b> (keyless) with a global provider fallback chain</li>
             <li>Deterministic math first — the AI only translates it</li>
             <li>Fully explainable: every verdict shows its evidence and its equation</li>
             <li>Self-auditing: the Methodology page documents every rule</li>
@@ -34,7 +35,7 @@ export function AboutPage() {
         <div className="card-title">How it works — the short version</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           {[
-            ['1 · Ingest', 'Daily OHLCV history for 20 instruments + 8 FX pairs from a keyless-first provider chain (Stooq → ECB Frankfurter → Twelve Data → Finnhub → Alpha Vantage), with validation, caching and circuit breakers.'],
+            ['1 · Ingest', 'NSE India first: equities, indices, NIFTY-50 breadth and the full listed-company universe straight from nseindia.com (keyless). Fallbacks: Stooq → ECB Frankfurter → Twelve Data → Finnhub → Alpha Vantage — all validated, cached and circuit-broken.'],
             ['2 · Compute', 'A deterministic math layer computes SMAs, RSI, MACD, ATR, realized vol, VWAP z-scores, VIX velocity, OBV/volume pressure and cross-asset correlations.'],
             ['3 · Score', 'The regime engine blends Trend 35% + Momentum 25% + Volatility 25% + Volume 15% + news ±10% into a 0-100 score → Bullish / Bearish / Neutral / Uncertain.'],
             ['4 · Explain', 'Gemini translates the numeric payload into structured theses; the Pulse Assistant explains any selected text in simpler words. Every number traces back to the evidence panel.'],
@@ -50,7 +51,8 @@ export function AboutPage() {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-title">Data & AI provenance</div>
         <p style={{ fontSize: 13.5, color: 'var(--text-dim)' }}>
-          Market data: Stooq (keyless), Frankfurter/ECB (keyless FX), optional Twelve Data / Finnhub / Alpha Vantage.
+          Market data: <b>nseindia.com directly (keyless, India-first)</b>, then Stooq (keyless), Frankfurter/ECB (keyless FX),
+          optional Twelve Data / Finnhub / Alpha Vantage.
           News: Google News RSS with publisher attribution. AI: Google Gemini (flash model) via server-side key —
           prompts are constrained against advice and predictions, and a deterministic fallback keeps the app useful
           when AI is unavailable. When live data is unreachable, the app switches to clearly-labeled Demo Mode.

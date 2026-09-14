@@ -9,6 +9,8 @@ import { ThesisCard } from '../components/ThesisCard'
 import { PriceChart } from '../components/PriceChart'
 import { NewsList } from '../components/NewsList'
 import { ImageAnalyzer } from '../components/ImageAnalyzer'
+import { LoadingProgress } from '../components/LoadingProgress'
+import { OutlookCard } from '../components/OutlookCard'
 import { CardSkeleton } from '../components/Skeletons'
 import type { Analysis, AssetDetail } from '../types'
 
@@ -78,6 +80,16 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
       <section className="section">
         <div className="card">{d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}</div>
       </section>
+
+      {/* Live progress: stage + time remaining for the deep analysis */}
+      <LoadingProgress instrumentId={id} loading={analysis.loading && !analysis.data} />
+
+      {/* Clear outlook — the instant plain-English answer */}
+      {a?.outlook ? (
+        <section className="section">
+          <OutlookCard outlook={a.outlook} verdict={a.assessment?.verdict} />
+        </section>
+      ) : null}
 
       {/* Verdict — always visible; appears as soon as analysis lands */}
       <section className="grid cols-2" style={{ alignItems: 'stretch' }}>

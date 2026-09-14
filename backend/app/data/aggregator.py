@@ -1,9 +1,14 @@
 """Aggregator: the fallback brain.
 
-Order: Stooq (keyless) -> Twelve Data -> Finnhub -> Alpha Vantage.
-Per-provider circuit breakers + TTL caches. Every result carries
-provenance (which provider, cache age) so the UI can show honest labels.
-If every provider fails for an instrument, callers fall back to Demo Mode.
+India-first routing:
+* Indian instruments -> IndiaStore (official NSE EOD files: the daily
+  bhavcopy + ind_close_all index file, keyless, honest data dates).
+* Global instruments -> Stooq -> Frankfurter(FX) -> Twelve Data -> Finnhub
+  -> Alpha Vantage (each behind a circuit breaker; keyless first).
+
+Every result carries provenance (provider, data date, cache age) so the UI
+can show honest labels. If every provider fails for an instrument, callers
+fall back to Demo Mode.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from typing import Any
 
 from ..core.cache import CircuitBreaker, TTLCache
 from ..core.config import get_settings
+from .india_store import get_store
 from .providers import (
     AlphaVantageProvider,
     FinnhubProvider,
@@ -29,6 +35,7 @@ class Aggregator:
     def __init__(self) -> None:
         s = get_settings()
         self.settings = s
+        self.india = get_store()
         self.providers = [
             StooqProvider(),
             FrankfurterProvider(),  # keyless ECB FX — keeps FX alive without any keys
@@ -44,12 +51,14 @@ class Aggregator:
 
     # ------------------------------------------------------------------
     async def get_history(self, instrument_id: str, force_refresh: bool = False) -> dict[str, Any]:
-        """Clean daily history for an instrument with full fallback chain.
+        """Clean daily history for an instrument with India-first fallback chain.
 
         Raises ValueError for unknown instruments; returns dict with
         {'available': bool, 'instrument': ..., 'rows': [...], 'provenance': ...}.
         """
         inst = ALL.get(instrument_id)
+        if inst is None:
+            inst = await self.dynamic_instrument(instrument_id)
         if inst is None:
             raise ValueError(f"unknown instrument: {instrument_id}")
 
@@ -60,6 +69,30 @@ class Aggregator:
                 return cached
 
         attempts: list[dict[str, Any]] = []
+
+        # ------------- India-first: official NSE EOD files -------------
+        if inst.region == "india":
+            try:
+                rows = await self._india_history_rows(inst)
+                if len(rows) < 2:
+                    raise ProviderError("NSE files had no usable rows")
+                result = {
+                    "available": True,
+                    "instrument": inst.to_dict(),
+                    "rows": rows,
+                    "provenance": {
+                        "provider": "nse-archives (official EOD files)",
+                        "data_date": rows[-1]["date"],
+                        "fetched_at": datetime.now(timezone.utc).isoformat(),
+                        "attempts": [{"provider": "nse-archives", "ok": True}],
+                    },
+                }
+                self.history_cache.set(cache_key, result, self.settings.daily_ttl_seconds)
+                return result
+            except ProviderError as exc:
+                attempts.append({"provider": "nse-archives", "error": str(exc)})
+
+        # ------------------- global provider chain --------------------
         for provider in self.providers:
             symbol = symbol_for(inst, provider.name)
             if not symbol:
@@ -84,6 +117,7 @@ class Aggregator:
                     "rows": rows,
                     "provenance": {
                         "provider": provider.name,
+                        "data_date": rows[-1]["date"],
                         "fetched_at": datetime.now(timezone.utc).isoformat(),
                         "attempts": attempts + [{"provider": provider.name, "ok": True}],
                     },
@@ -102,9 +136,21 @@ class Aggregator:
             "provenance": {"attempts": attempts, "fetched_at": datetime.now(timezone.utc).isoformat()},
         }
 
+    # ------------------------------------------------------------------
+    async def _india_history_rows(self, inst: Instrument) -> list[dict]:
+        """Daily bars from official NSE files for stocks and indices."""
+        if inst.category == "index" and inst.nse_index:
+            rows = await self.india.index_history(inst.nse_index, min_bars=70)
+        else:
+            sym = inst.nse or inst.id.upper()
+            rows = await self.india.stock_history(sym, min_bars=70)
+        return rows
+
     async def get_quote(self, instrument_id: str) -> dict[str, Any]:
         """Freshness-optimized quote: quote cache (60s) -> history chain."""
         inst = ALL.get(instrument_id)
+        if inst is None:
+            inst = await self.dynamic_instrument(instrument_id)
         if inst is None:
             raise ValueError(f"unknown instrument: {instrument_id}")
 
@@ -119,9 +165,7 @@ class Aggregator:
             self.quote_cache.set(cache_key, out, 30)  # brief negative cache
             return out
 
-        quote = derive_quote(
-            hist["rows"], hist["provenance"]["provider"]
-        )
+        quote = derive_quote(hist["rows"], hist["provenance"]["provider"])
         out = {"available": True, "instrument": inst.to_dict(), "quote": quote}
         self.quote_cache.set(cache_key, out, self.settings.quote_ttl_seconds)
         return out
@@ -129,6 +173,7 @@ class Aggregator:
     # ------------------------------------------------------------------
     def health(self) -> dict[str, Any]:
         return {
+            "india_store": self.india.health(),
             "providers": {
                 name: {"available": getattr(p, "available", True), **br.status()}
                 for (name, br), p in zip(
@@ -142,6 +187,25 @@ class Aggregator:
     def clear_caches(self) -> None:
         self.quote_cache.clear()
         self.history_cache.clear()
+
+    # ------------------------------------------------------------------
+    async def dynamic_instrument(self, instrument_id: str) -> Instrument | None:
+        """Resolve a dynamic id `nse-<symbol>` against the Dhan name master.
+
+        The full NSE + BSE listed universe (~2000 + ~4500 equities) becomes
+        searchable/trackable without hardcoding anything.
+        """
+        if not instrument_id.startswith("nse-"):
+            return None
+        sym = instrument_id[4:].upper().replace("%20", " ")
+        names = await self.india.names()
+        name = names["nse"].get(sym) or sym
+        return Instrument(
+            id=f"nse-{sym.lower()}", name=name, category="stock",
+            region="india", currency="INR", stooq=None, twelvedata=None,
+            finnhub=None, alphavantage=None, nse=sym,
+            weight=0.6, keywords=(sym.lower(),),
+        )
 
 
 aggregator = Aggregator()

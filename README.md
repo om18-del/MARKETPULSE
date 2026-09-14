@@ -56,9 +56,15 @@ Works **immediately with zero API keys** (keyless market + FX data). Add a Gemin
 | `TWELVEDATA_API_KEY` | optional | [twelvedata.com](https://twelvedata.com) | 800/day |
 | `FINNHUB_API_KEY` | optional | [finnhub.io](https://finnhub.io) | 60/min |
 | `ALPHAVANTAGE_API_KEY` | optional | [alphavantage.co](https://www.alphavantage.co) | 25/day |
-| *(Stooq + Frankfurter/ECB)* | **none needed** | — | keyless primaries |
+| *(NSE archives + Dhan master + Stooq + Frankfurter/ECB)* | **none needed** | — | keyless primaries |
 
-**Data provider chain (no Yahoo):** Stooq (keyless) → Frankfurter/ECB (keyless FX) → Twelve Data → Finnhub → Alpha Vantage. Per-provider circuit breakers; the Evidence panel shows which provider served each number.
+**Data pipeline (no Yahoo, no scraping):**
+
+* **India (primary):** official NSE EOD files — daily bhavcopy (`sec_bhavdata_full_*.csv`, every traded NSE equity with OHLC/prev-close/volume/trades) + `ind_close_all_*.csv` (every NSE index incl. NIFTY family) + NIFTY 50 constituents. The **entire listed universe (~2000 NSE companies)** is searchable via the Dhan public scrip master (symbol → company name). All keyless; files are published by the exchange itself, so dates are always honest ("EOD 11-Sep-2026").
+* **Global:** Stooq (keyless) → Frankfurter/ECB (keyless FX) → Twelve Data → Finnhub → Alpha Vantage. Per-provider circuit breakers (open → half-open probe → re-open).
+* **Price verification:** every analysis payload states its provider and exact data date; `/api/nse/status` exposes pipeline health, and closes are cross-checked across the two independent NSE files.
+
+**Defaults:** base currency **INR**, news topic **India**, FX panel base **INR**.
 
 ## 🧠 How a verdict is reached
 
@@ -82,9 +88,10 @@ High realized volatility (>28% ann.) pushes reads toward **Uncertain** instead o
 MARKETPULSE/
 ├── backend/                  FastAPI :8000 (lean, no DB)
 │   ├── app/core/             config, TTL cache + circuit breakers
-│   ├── app/data/             registry (38 instruments) · providers/ (stooq,
-│   │                         frankfurter, twelvedata, finnhub, alphavantage)
-│   │                         aggregator (fallback chain) · validation
+│   ├── app/data/             registry · india_store (NSE bhavcopy + indices +
+│   │                         NIFTY constituents + Dhan universe) · providers/
+│   │                         (stooq, frankfurter, twelvedata, finnhub, alphavantage)
+│   │                         aggregator (India-first fallback chain) · validation
 │   ├── app/engines/          indicators · filters · regime · breadth · fx
 │   ├── app/news/             rss (Google News) · analyzer (Gemini + keyword fallback)
 │   ├── app/ai/               gemini_client · analysis/ (thesis, chat, recap, fx, vision)
@@ -116,7 +123,7 @@ MARKETPULSE/
 
 **All-in-Vercel alternative:** `api/index.py` + `vercel.json` ship the FastAPI app as a serverless function (cold starts reset caches — fine for light demos). Add a Python requirements step for the api (`backend/requirements.txt`).
 
-**Honest deployment caveats:** datacenter IPs are sometimes blocked by Stooq's bot-gate (the code handles its proof-of-work challenge transparently, but IP reputation can still deny — then Frankfurter keeps FX live and other keys keep equities live); public traffic can exhaust Gemini's free RPM (caching + keyword fallbacks handle it).
+**Honest deployment caveats:** Indian data comes from official NSE archive files (keyless, no bot-gate on those endpoints); Stooq can still block datacenter IPs for the US/global instruments (code handles its proof-of-work challenge, but IP reputation can deny — then clearly-labeled Demo Mode covers those assets); public traffic can exhaust Gemini's free RPM (caching + keyword fallbacks handle it).
 
 ## 🎤 Hackathon demo script (2 minutes)
 

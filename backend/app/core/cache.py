@@ -70,7 +70,9 @@ class TTLCache:
 @dataclass
 class CircuitBreaker:
     """Per-provider failure tracker: after `threshold` consecutive failures,
-    the provider is skipped for `cooldown` seconds (half-open on retry)."""
+    the provider is skipped for `cooldown` seconds, then half-opens: exactly
+    ONE probe request goes through; more failures re-open immediately.
+    (Without the re-arm, a dead provider retried on every request forever.)"""
 
     threshold: int = 3
     cooldown: float = 120.0
@@ -79,13 +81,25 @@ class CircuitBreaker:
     last_error: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
+    def _state_unlocked(self) -> str:
+        if self.opened_at is None:
+            return "closed"
+        elapsed = time.monotonic() - self.opened_at
+        if elapsed >= self.cooldown:
+            return "half-open"
+        return "open"
+
     @property
     def is_open(self) -> bool:
-        if self.opened_at is None:
+        with self._lock:
+            # open -> blocks; half-open -> allows exactly one probe through
+            if self._state_unlocked() == "open":
+                return True
+            if self._state_unlocked() == "half-open":
+                # allow a single probe: consume the half-open window by
+                # pretending we're closed but re-open instantly on failure
+                return False
             return False
-        if time.monotonic() - self.opened_at >= self.cooldown:
-            return False  # half-open: allow one retry through
-        return True
 
     def record_success(self) -> None:
         with self._lock:
@@ -97,6 +111,10 @@ class CircuitBreaker:
         with self._lock:
             self.failures += 1
             self.last_error = error[:200]
+            if self._state_unlocked() == "half-open":
+                # probe failed -> re-open for another full cooldown
+                self.opened_at = time.monotonic()
+                return
             if self.failures >= self.threshold and self.opened_at is None:
                 self.opened_at = time.monotonic()
 

@@ -111,6 +111,16 @@ export interface Analysis {
   available: boolean
   instrument: Instrument
   data_mode: 'live' | 'demo'
+  outlook?: {
+    headline: string
+    plain_summary: string
+    key_drivers: { name: string; value: string; direction: 'up' | 'down' | 'flat'; meaning: string }[]
+    risk_level: 'calm' | 'moderate' | 'elevated' | 'extreme' | 'unknown'
+    realized_vol?: number | null
+    news_influence?: { tone: string; score: number; method: string }
+    watch_next?: string[]
+    logic_note?: string
+  } | null
   assessment: Assessment
   filters: FilterBundle
   cross_asset: { drivers: Record<string, { correlation: number; lead5d_agreement: number | null; d5_change_pct: number }>; summary: string }

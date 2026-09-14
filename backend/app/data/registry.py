@@ -33,6 +33,8 @@ class Instrument:
     finnhub: Optional[str]
     alphavantage: Optional[str]
     frankfurter: Optional[str] = None  # ECB keyless FX provider (pairs like "USD:INR")
+    nse: Optional[str] = None            # NSE equity symbol (e.g. "RELIANCE")
+    nse_index: Optional[str] = None      # NSE index name (e.g. "NIFTY 50")
     weight: float = 1.0     # influence on global regime blend
     fx_pair: bool = False
     keywords: tuple[str, ...] = field(default_factory=tuple)  # search hints
@@ -67,15 +69,39 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
                stooq="^vix", twelvedata="VIX", finnhub=None, alphavantage="VIXY",
                weight=1.2, keywords=("volatility", "fear index", "vix")),
     # --------------------------- India indices --------------------------
+    # All Indian data is fetched DIRECTLY from nseindia.com (keyless) —
+    # see providers/nse.py. Stooq kept only as a fallback for these.
     Instrument("nifty50", "NIFTY 50", "index", "india", "INR",
                stooq="^nsei", twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY 50",
                weight=1.5, keywords=("nifty", "nse", "india market")),
     Instrument("sensex", "BSE SENSEX", "index", "india", "INR",
                stooq="^snx", twelvedata=None, finnhub=None, alphavantage=None,
                weight=1.4, keywords=("sensex", "bse", "mumbai")),
     Instrument("niftybank", "NIFTY Bank", "index", "india", "INR",
                stooq="^banknifty", twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY BANK",
                weight=1.2, keywords=("banknifty", "banking stocks", "banks")),
+    Instrument("niftyit", "NIFTY IT", "index", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY IT",
+               weight=1.1, keywords=("nifty it", "it stocks", "tech india", "software")),
+    Instrument("niftynext50", "NIFTY Next 50", "index", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY NEXT 50",
+               weight=1.0, keywords=("next 50", "junior nifty")),
+    Instrument("niftymidcap150", "NIFTY Midcap 150", "index", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY MIDCAP 150",
+               weight=1.0, keywords=("midcap", "mid cap")),
+    Instrument("niftysmallcap250", "NIFTY Smallcap 250", "index", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY SMALLCAP 250",
+               weight=0.9, keywords=("smallcap", "small cap")),
+    Instrument("niftyfin", "NIFTY Financial Services", "index", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse_index="NIFTY FIN SERVICE",
+               weight=1.1, keywords=("financial services", "finnifty")),
     # --------------------------- Europe indices -------------------------
     Instrument("ftse100", "FTSE 100", "index", "europe", "GBp",
                stooq="^ukx", twelvedata=None, finnhub=None, alphavantage=None,
@@ -151,20 +177,39 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
                weight=0.6, fx_pair=True, keywords=("franc", "chf", "swiss")),
 ]}
 
-# Searchable extra US stocks (Stooq covers these keyless) — commonly searched tickers
+# Indian stocks (NSE symbols, data direct from nseindia.com) — flagship names
+# beyond the dynamic universe so the most-searched tickers are always present.
 EXTRA_STOCKS: dict[str, Instrument] = {i.id: i for i in [
     Instrument("reliance", "Reliance Industries", "stock", "india", "INR",
                stooq="reliance.in", twelvedata=None, finnhub=None, alphavantage=None,
-               keywords=("reliance", "ril", "mukesh ambani")),
+               nse="RELIANCE", keywords=("reliance", "ril", "mukesh ambani")),
     Instrument("tcs", "Tata Consultancy Services", "stock", "india", "INR",
                stooq="tcs.in", twelvedata=None, finnhub=None, alphavantage=None,
-               keywords=("tcs", "tata consultancy")),
+               nse="TCS", keywords=("tcs", "tata consultancy")),
     Instrument("hdfcbank", "HDFC Bank", "stock", "india", "INR",
                stooq="hdfcbank.in", twelvedata=None, finnhub=None, alphavantage=None,
-               keywords=("hdfc",)),
+               nse="HDFCBANK", keywords=("hdfc",)),
     Instrument("infy", "Infosys", "stock", "india", "INR",
-               stooq="infy.in", twelvedata="INFY", finnhub=None, alphavantage="INFY",
-               keywords=("infosys",)),
+               stooq="infy.in", twelvedata=None, finnhub=None, alphavantage=None,
+               nse="INFY", keywords=("infosys",)),
+    Instrument("icicibank", "ICICI Bank", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="ICICIBANK", keywords=("icici",)),
+    Instrument("sbin", "State Bank of India", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="SBIN", keywords=("sbi", "state bank")),
+    Instrument("bhartiartl", "Bharti Airtel", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="BHARTIARTL", keywords=("airtel",)),
+    Instrument("lt", "Larsen & Toubro", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="LT", keywords=("l&t", "larsen", "toubro")),
+    Instrument("itc", "ITC Ltd", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="ITC", keywords=("itc", "gold flake")),
+    Instrument("axisbank", "Axis Bank", "stock", "india", "INR",
+               stooq=None, twelvedata=None, finnhub=None, alphavantage=None,
+               nse="AXISBANK", keywords=("axis",)),
     Instrument("aapl", "Apple Inc.", "stock", "us", "USD",
                stooq="aapl.us", twelvedata="AAPL", finnhub="AAPL", alphavantage="AAPL",
                keywords=("apple", "iphone")),
@@ -187,7 +232,7 @@ EXTRA_STOCKS: dict[str, Instrument] = {i.id: i for i in [
 
 ALL: dict[str, Instrument] = {**REGISTRY, **EXTRA_STOCKS}
 
-PROVIDERS = ("stooq", "twelvedata", "finnhub", "alphavantage")
+PROVIDERS = ("nse", "stooq", "twelvedata", "finnhub", "alphavantage")
 
 
 def get(instrument_id: str) -> Instrument | None:
@@ -199,13 +244,18 @@ def symbol_for(instrument: Instrument, provider: str) -> str | None:
     return getattr(instrument, provider, None)
 
 
-def search(query: str, limit: int = 8) -> list[Instrument]:
-    """Registry search across ids, names and keywords (prefix/substring)."""
+def search(query: str, limit: int = 8, extra: dict[str, Instrument] | None = None) -> list[Instrument]:
+    """Registry search across ids, names and keywords (prefix/substring).
+
+    `extra` merges a dynamic instrument set (e.g. the live NSE universe)
+    into the search space without touching the static registry.
+    """
     q = query.lower().strip()
     if not q:
         return []
+    space = {**ALL, **(extra or {})}
     scored: list[tuple[int, Instrument]] = []
-    for inst in ALL.values():
+    for inst in space.values():
         hay_ids = [inst.id]
         hay_names = [inst.name.lower()]
         hay_kw = [k.lower() for k in inst.keywords]

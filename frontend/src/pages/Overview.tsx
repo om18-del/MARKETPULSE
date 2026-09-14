@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Flame, Globe2, LayoutGrid, Search as SearchIcon, TrendingDown, TrendingUp } from 'lucide-react'
+import { Flame, Globe2, IndianRupee, LayoutGrid, Search as SearchIcon, TrendingDown, TrendingUp } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
+import { api } from '../api'
 import type { GridEntry, Overview } from '../types'
 import { RegimeGauge } from '../components/Verdict'
 import { IndexCard } from '../components/IndexCard'
@@ -10,6 +11,18 @@ import { SearchBar } from '../components/SearchBar'
 import { RecapCard } from '../components/RecapCard'
 import { CurrencyPanel } from '../components/CurrencyPanel'
 import { useWatchlist } from '../hooks/useWatchlist'
+import { useEffect } from 'react'
+
+interface NseMover { symbol: string; name: string; last_price: number; change_pct: number }
+interface NseMoversData {
+  available: boolean
+  gainers?: NseMover[]
+  losers?: NseMover[]
+  advances?: number | null
+  declines?: number | null
+  counted?: number
+  reason?: string
+}
 
 const REGION_LABEL: Record<string, string> = {
   us: '🇺🇸 United States',
@@ -47,7 +60,7 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
         <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, borderColor: 'color-mix(in srgb, var(--accent-a) 25%, var(--card-border))' }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>1 · Read the pulse</div>
-            <div className="faint" style={{ fontSize: 12.5 }}>The gauge below blends 28 instruments into one Bullish / Bearish / Neutral / Uncertain read — computed by math, explained by AI.</div>
+            <div className="faint" style={{ fontSize: 12.5 }}>India-first: NIFTY, Sensex and the NSE universe lead the read. The gauge blends them with global signals — computed by math, explained by AI.</div>
           </div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>2 · Search anything</div>
@@ -133,8 +146,13 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
         ) : (
           <button className="btn" onClick={() => setShowSearch(true)}><SearchIcon size={15} /> Search stocks & indices</button>
         )}
-        <div className="faint" style={{ textAlign: 'center', marginTop: 8 }}>press <kbd>Ctrl</kbd> <kbd>K</kbd> anywhere to search</div>
+        <div className="faint" style={{ textAlign: 'center', marginTop: 8 }}>
+          press <kbd>Ctrl</kbd> <kbd>K</kbd> anywhere to search · every NSE-listed company is searchable · amounts default to ₹ INR
+        </div>
       </section>
+
+      {/* Live NSE movers — direct from nseindia.com */}
+      <NseMoversCard />
 
       {/* Watchlist */}
       {watchEntries.length ? (
@@ -215,6 +233,59 @@ function MoverRow({ e }: { e: GridEntry }) {
       <span style={{ fontWeight: 600 }}>{e.name}</span>
       <span className="num" style={{ color: up ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>
         {up ? '+' : ''}{(e.change_pct ?? 0).toFixed(2)}%
+      </span>
+    </a>
+  )
+}
+
+/** Live NIFTY 50 gainers/losers straight from nseindia.com (keyless).
+ *  Hidden entirely if NSE is unreachable — no fake rows. */
+function NseMoversCard() {
+  const [data, setData] = useState<NseMoversData | null>(null)
+  useEffect(() => {
+    let alive = true
+    api.nseMovers().then((d) => { if (alive) setData(d) }).catch(() => {})
+    const t = setInterval(() => {
+      api.nseMovers().then((d) => { if (alive) setData(d) }).catch(() => {})
+    }, 120_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+  if (!data?.available || !data.gainers?.length || !data.losers?.length) return null
+  return (
+    <section className="section">
+      <div className="card">
+        <div className="card-title">
+          <IndianRupee size={15} /> NIFTY 50 — live from NSE
+          <span className="faint" style={{ textTransform: 'none', letterSpacing: 0 }}>
+            {data.counted} stocks · {data.advances ?? '—'} advancing / {data.declines ?? '—'} declining
+          </span>
+          <span className="chip pos" style={{ marginLeft: 'auto' }}>direct · nseindia.com</span>
+        </div>
+        <div className="grid cols-2" style={{ gap: 18 }}>
+          <div>
+            <div className="faint" style={{ fontSize: 12, marginBottom: 4, color: 'var(--pos)', fontWeight: 700 }}>TOP GAINERS</div>
+            {data.gainers.map((m) => <NseMoverRow key={m.symbol} m={m} />)}
+          </div>
+          <div>
+            <div className="faint" style={{ fontSize: 12, marginBottom: 4, color: 'var(--neg)', fontWeight: 700 }}>TOP LOSERS</div>
+            {data.losers.map((m) => <NseMoverRow key={m.symbol} m={m} />)}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function NseMoverRow({ m }: { m: NseMover }) {
+  const up = m.change_pct >= 0
+  return (
+    <a href={`/asset/nse-${m.symbol.toLowerCase()}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--card-border)', fontSize: 13.5 }}>
+      <span><b>{m.symbol}</b> <span className="faint" style={{ fontSize: 12 }}>{m.name.length > 34 ? `${m.name.slice(0, 34)}…` : m.name}</span></span>
+      <span style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+        <span className="num">₹{m.last_price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+        <span className="num" style={{ color: up ? 'var(--pos)' : 'var(--neg)', fontWeight: 700, minWidth: 58, textAlign: 'right' }}>
+          {up ? '+' : ''}{m.change_pct.toFixed(2)}%
+        </span>
       </span>
     </a>
   )

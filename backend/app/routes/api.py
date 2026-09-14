@@ -70,7 +70,7 @@ async def overview() -> dict:
 
 @router.get("/search")
 async def search(q: str = Query(..., min_length=1, max_length=50)) -> dict:
-    return service.search_all(q)
+    return await service.search_all(q)
 
 
 @router.get("/asset/{instrument_id}")
@@ -91,9 +91,19 @@ async def analysis(instrument_id: str) -> dict:
         raise HTTPException(status_code=503, detail=f"analysis unavailable: {exc}") from exc
 
 
+@router.get("/analysis/{instrument_id}/progress")
+async def analysis_progress(instrument_id: str) -> dict:
+    """Stage + time-remaining feed for the deep-analysis request."""
+    try:
+        return service.analysis_progress(instrument_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 # --------------------------------- news --------------------------------
 @router.get("/news")
-async def news(topic: str = Query("global")) -> dict:
+async def news(topic: str = Query("india")) -> dict:
+    """News feed — India is the default topic (India-first product)."""
     return await service.news_feed(topic)
 
 
@@ -130,7 +140,8 @@ async def analyze_image(req: ImageRequest) -> dict:
 
 # --------------------------------- fx ----------------------------------
 @router.get("/fx")
-async def fx(base: str = Query("USD", min_length=3, max_length=3)) -> dict:
+async def fx(base: str = Query("INR", min_length=3, max_length=3)) -> dict:
+    """FX panel — INR is the default base (India-first product)."""
     payload = await service.fx_overview()
     return {**payload, "selected_base": base.upper()}
 
@@ -156,6 +167,22 @@ async def dictionary(q: str = Query(""), category: str = Query("")) -> dict:
 @router.get("/dictionary/categories")
 async def dictionary_cats() -> dict:
     return {"categories": dict_categories()}
+
+
+# --------------------------------- nse ----------------------------------
+@router.get("/nse/movers")
+async def nse_movers() -> dict:
+    """NIFTY 50 gainers/losers/advances direct from nseindia.com."""
+    try:
+        return await service.nse_movers()
+    except Exception as exc:
+        return {"available": False, "reason": f"NSE unreachable: {exc}",
+                "disclaimer": service.DISCLAIMER}
+
+
+@router.get("/nse/status")
+async def nse_status() -> dict:
+    return await service.nse_status()
 
 
 # ----------------------------- methodology -----------------------------

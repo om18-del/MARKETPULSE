@@ -17,7 +17,8 @@ from .ai import assistant as ai_assistant
 from .ai.gemini_client import get_gemini
 from .core.config import get_settings
 from .data.aggregator import get_aggregator
-from .data.registry import ALL, REGISTRY
+from .data.india_store import get_store
+from .data.registry import ALL, REGISTRY, Instrument
 from .data.registry import search as search_registry
 from .demo.snapshots import demo_history
 from .engines import fx as fx_engine
@@ -44,15 +45,25 @@ DRIVER_IDS = ["dxy", "us10y", "gold", "crude", "vix"]
 async def _history_with_demo(instrument_id: str, force_refresh: bool = False) -> tuple[dict, bool]:
     """History with automatic Demo Mode fallback. Returns (payload, used_demo)."""
     agg = get_aggregator()
+    inst = ALL.get(instrument_id)
+    if inst is None:
+        inst = await agg.dynamic_instrument(instrument_id)  # dynamic NSE-universe id
+
+    def _inst_dict() -> dict[str, Any]:
+        if inst is not None:
+            return inst.to_dict()
+        return {"id": instrument_id, "name": instrument_id.upper(),
+                "category": "stock", "region": "india", "currency": "INR"}
+
     if DEMO_STATE["forced"] or get_settings().force_demo_mode:
         demo = demo_history(instrument_id)
-        demo["instrument"] = ALL[instrument_id].to_dict()
+        demo["instrument"] = _inst_dict()
         return demo, True
     hist = await agg.get_history(instrument_id, force_refresh=force_refresh)
     if hist["available"]:
         return hist, False
     demo = demo_history(instrument_id)
-    demo["instrument"] = ALL[instrument_id].to_dict()
+    demo["instrument"] = _inst_dict()
     return demo, True
 
 
@@ -143,6 +154,8 @@ async def overview() -> dict[str, Any]:
 async def asset_detail(instrument_id: str) -> dict[str, Any]:
     inst = ALL.get(instrument_id)
     if inst is None:
+        inst = await get_aggregator().dynamic_instrument(instrument_id)
+    if inst is None:
         raise ValueError(f"unknown instrument: {instrument_id}")
     hist, used_demo = await _history_with_demo(inst.id)
     rows = hist["rows"]
@@ -167,6 +180,8 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
     """Everything for the detail page: regime + filters + cross-asset + news + thesis."""
     inst = ALL.get(instrument_id)
     if inst is None:
+        inst = await get_aggregator().dynamic_instrument(instrument_id)
+    if inst is None:
         raise ValueError(f"unknown instrument: {instrument_id}")
 
     # Full-analysis cache: deep analysis is expensive (history + drivers + news
@@ -176,6 +191,8 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
     if _hit and time.monotonic() - _hit[0] < 300:
         return _hit[1]
 
+    _progress_start(inst.id)
+
     hist, used_demo = await _history_with_demo(inst.id)
     rows = hist["rows"]
     if len(rows) < 30:
@@ -183,6 +200,7 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
 
     gemini = get_gemini()
 
+    _progress_stage(inst.id, "history")
     # --- fetch everything independent in parallel (was sequential: ~2min cold) ---
     topic = NEWS_TOPIC_BY_REGION.get(inst.region, "global")
     news_task = _cached_news(topic)
@@ -197,6 +215,8 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
     )
     tagged = news_payload.get("articles", [])[:8]
     news_for_regime = {"score": news_payload.get("aggregate_score", 0.0), "articles": tagged[:5]}
+
+    _progress_stage(inst.id, "filters")
 
     # --- deterministic filters ---
     vix_rows = None
@@ -218,6 +238,7 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
             driver_rows[did] = dh["rows"]
     cross = cross_asset_pressure(rows, driver_rows)
 
+    _progress_stage(inst.id, "regime")
     # --- regime ---
     assessment = regime_assess(rows, news_sentiment=news_for_regime, instrument_name=inst.name)
 
@@ -233,13 +254,17 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
                             "sentiment": a.get("sentiment"), "reason": a.get("reason")}
                            for a in tagged[:5]],
     }
+    _progress_stage(inst.id, "thesis")
     thesis = await ai_analysis.build_thesis(gemini, features)
+
+    outlook = _build_outlook(assessment, filters_bundle, news_payload, cross, inst.name)
 
     result = {
         "available": True,
         "instrument": inst.to_dict(),
         "data_mode": "demo" if used_demo else "live",
         "provenance": hist["provenance"],
+        "outlook": outlook,
         "assessment": assessment,
         "filters": filters_bundle,
         "cross_asset": cross,
@@ -248,8 +273,163 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
         "thesis": thesis,
         "disclaimer": DISCLAIMER,
     }
+    _progress_done(inst.id)
     _ANALYSIS_CACHE[_analysis_cache_key] = (time.monotonic(), result)
     return result
+
+
+def _risk_level(realized_vol: float | None) -> str:
+    if realized_vol is None:
+        return "unknown"
+    if realized_vol < 15:
+        return "calm"
+    if realized_vol < 25:
+        return "moderate"
+    if realized_vol < 35:
+        return "elevated"
+    return "extreme"
+
+
+def _build_outlook(assessment: dict, filters_bundle: dict, news_payload: dict,
+                   cross: dict, name: str) -> dict[str, Any]:
+    """Deterministic plain-English outlook: the instant 'clear answer' card.
+
+    Assembled entirely from computed numbers — no AI call, no black box.
+    """
+    verdict = assessment.get("verdict", "neutral")
+    conf = assessment.get("confidence", 0)
+    factors = assessment.get("factors") or {}
+
+    # top 3 contributing factors across trend/momentum/volume
+    parts: list[dict] = []
+    for key in ("trend", "momentum", "volume"):
+        for p in (factors.get(key) or {}).get("parts", []):
+            parts.append({**p, "factor_group": key})
+    top = sorted(parts, key=lambda p: abs(p.get("sub_score", 0) * p.get("weight", 1)), reverse=True)[:3]
+
+    rv = (factors.get("volatility") or {}).get("realized_vol")
+    risk = _risk_level(rv if isinstance(rv, (int, float)) else None)
+
+    news_score = news_payload.get("aggregate_score", 0.0) or 0.0
+    news_method = news_payload.get("method", "n/a")
+    news_word = ("positive" if news_score > 0.1 else "negative" if news_score < -0.1 else "neutral")
+
+    vwap = filters_bundle.get("vwap") or {}
+    vp = filters_bundle.get("volume_pressure") or {}
+
+    drivers_sentence = "; ".join(
+        f"{p.get('name')} {p.get('value')} ({p.get('meaning', '')})" for p in top
+    )
+    plain = (
+        f"{name} is in a {verdict.upper()} environment with {conf}% confidence. "
+        f"Key drivers: {drivers_sentence}. "
+        f"Risk level is {risk}"
+        + (f" (realized volatility {rv:.1f}% annualized)" if isinstance(rv, (int, float)) else "")
+        + f"; volume flow reads {vp.get('proxy_label', 'balanced')}"
+        + (f" and price is {vwap.get('band', 'normal')} vs its volume-weighted average" if vwap else "")
+        + f". News tone is {news_word} ({news_score:+.2f}, {news_method}-tagged)."
+    )
+
+    return {
+        "headline": f"{verdict.upper()} · {conf}% confidence · risk: {risk}",
+        "plain_summary": plain,
+        "key_drivers": [
+            {"name": p.get("name"), "value": p.get("value"),
+             "direction": "up" if (p.get("sub_score", 0) >= 0) else "down",
+             "meaning": p.get("meaning", "")}
+            for p in top
+        ],
+        "risk_level": risk,
+        "realized_vol": rv,
+        "news_influence": {"tone": news_word, "score": round(news_score, 2), "method": news_method},
+        "watch_next": (assessment.get("what_would_change_this_read") or [])[:2],
+        "logic_note": "Assembled deterministically from the 20-indicator math layer — the same numbers shown in the Evidence panel. No black box.",
+    }
+
+
+# --------------------------- progress tracking ---------------------------
+# Live progress for deep-analysis requests so the UI can show stage + time
+# remaining instead of a blind spinner. In-process only, like every cache here.
+
+_ANALYSIS_PROGRESS: dict[str, dict[str, Any]] = {}
+_LAST_COLD_SECONDS: dict[str, float] = {}
+
+_ANALYSIS_STAGES = [
+    "queued", "starting", "history", "drivers+news", "filters",
+    "cross-asset", "regime", "thesis", "ready",
+]
+
+
+def _progress_start(instrument_id: str) -> None:
+    _ANALYSIS_PROGRESS[instrument_id] = {
+        "started": time.monotonic(),
+        "mark": time.monotonic(),
+        "stage": "starting",
+        "stages_done": [],
+    }
+
+
+def _progress_stage(instrument_id: str, stage: str) -> None:
+    p = _ANALYSIS_PROGRESS.get(instrument_id)
+    if p is None:
+        return
+    now = time.monotonic()
+    p["stages_done"].append(
+        {"stage": p["stage"], "seconds": round(now - p["mark"], 2)}
+    )
+    p["mark"] = now
+    p["stage"] = stage
+
+
+def _progress_done(instrument_id: str) -> None:
+    p = _ANALYSIS_PROGRESS.get(instrument_id)
+    if p is None:
+        return
+    total = time.monotonic() - p["started"]
+    _LAST_COLD_SECONDS[instrument_id] = total
+    p["stage"] = "ready"
+
+
+def analysis_progress(instrument_id: str) -> dict[str, Any]:
+    """Time-remaining feed for the deep-analysis endpoint (polled by the UI)."""
+    if instrument_id not in ALL:
+        raise ValueError(f"unknown instrument: {instrument_id}")
+    if analysis_is_cached(instrument_id):
+        return {
+            "active": False, "done": True, "cached": True, "stage": "ready",
+            "pct": 100, "elapsed_seconds": 0, "seconds_remaining": 0,
+            "note": "Ready — served instantly from cache.",
+        }
+    p = _ANALYSIS_PROGRESS.get(instrument_id)
+    if p is None or p.get("stage") == "ready":
+        est = _LAST_COLD_SECONDS.get(instrument_id, 35.0)
+        return {
+            "active": False, "done": False, "cached": False, "stage": "queued",
+            "pct": 0, "elapsed_seconds": 0, "seconds_remaining": round(est, 1),
+            "estimated_total_seconds": round(est, 1),
+            "note": "Queued — the first deep analysis fetches providers, news and the AI thesis.",
+        }
+    now = time.monotonic()
+    elapsed = now - p["started"]
+    est = _LAST_COLD_SECONDS.get(instrument_id, 35.0)
+    stage_i = _ANALYSIS_STAGES.index(p["stage"]) if p["stage"] in _ANALYSIS_STAGES else 1
+    pct = min(95.0, round(100.0 * stage_i / (len(_ANALYSIS_STAGES) - 1), 1))
+    return {
+        "active": True, "done": False, "cached": False,
+        "stage": p["stage"], "stages_done": p["stages_done"], "pct": pct,
+        "elapsed_seconds": round(elapsed, 1),
+        "estimated_total_seconds": round(est, 1),
+        "seconds_remaining": round(max(0.0, est - elapsed), 1),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+def analysis_is_cached(instrument_id: str) -> bool:
+    inst = ALL.get(instrument_id)
+    if not inst:
+        return False
+    hit = _ANALYSIS_CACHE.get(f"analysis:{inst.id}")
+    return bool(hit and time.monotonic() - hit[0] < 300)
 
 
 _ANALYSIS_CACHE: dict[str, tuple[float, dict]] = {}
@@ -272,6 +452,35 @@ async def _cached_news(topic: str) -> dict[str, Any]:
 async def news_feed(topic: str = "global") -> dict[str, Any]:
     payload = await _cached_news(topic)
     return {**payload, "disclaimer": DISCLAIMER}
+
+
+async def nse_movers() -> dict[str, Any]:
+    """NIFTY 50 gainers/losers + whole-market breadth from the latest
+    official NSE bhavcopy (keyless, honest data date)."""
+    store = get_store()
+    m = await store.movers()
+    return {
+        "available": True,
+        "date": m["date"],
+        "gainers": m["gainers"], "losers": m["losers"],
+        "advances": m["advances"], "declines": m["declines"],
+        "counted": m["counted"],
+        "market_advances": m.get("market_advances"),
+        "market_declines": m.get("market_declines"),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+async def nse_status() -> dict[str, Any]:
+    """Honest health of the India data pipeline (for the UI footer)."""
+    store = get_store()
+    status = await store.market_status()
+    return {
+        "source": "official NSE EOD files (keyless)",
+        "market_status": status,
+        "store": store.health(),
+        "disclaimer": DISCLAIMER,
+    }
 
 
 async def fx_overview() -> dict[str, Any]:
@@ -382,8 +591,33 @@ def toggle_demo(enabled: bool) -> dict[str, Any]:
     return {"demo_mode": DEMO_STATE["forced"]}
 
 
-def search_all(q: str) -> dict[str, Any]:
-    hits = search_registry(q, limit=10)
+async def search_all(q: str) -> dict[str, Any]:
+    """Search the static registry PLUS the full NSE listed universe.
+
+    The universe comes from the Dhan public scrip master (symbol -> company
+    name for every NSE-listed equity, cached in-process) merged dynamically,
+    so users can find ANY NSE-listed company, not just flagship tickers.
+    """
+    agg = get_aggregator()
+    extra: dict[str, Any] = {}
+    universe_ok = False
+    try:
+        names = (await agg.india.names()).get("nse", {})
+        for sym, name in names.items():
+            uid = f"nse-{sym.lower()}"
+            extra[uid] = Instrument(
+                id=uid, name=name, category="stock", region="india",
+                currency="INR", stooq=None, twelvedata=None, finnhub=None,
+                alphavantage=None, nse=sym, weight=0.6, keywords=(sym.lower(),),
+            )
+        universe_ok = bool(extra)
+    except Exception as exc:
+        nse_error = str(exc)
+    else:
+        nse_error = None
+    hits = search_registry(q, limit=10, extra=extra)
     return {"query": q,
             "results": [{**h.to_dict(), "category_label": h.category} for h in hits],
+            "nse_universe": universe_ok,
+            "nse_error": nse_error,
             "disclaimer": DISCLAIMER}
