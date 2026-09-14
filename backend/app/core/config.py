@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     finnhub_api_key: str = ""
     alphavantage_api_key: str = ""
 
+    # --- PRISM tracing (optional; tracing is fail-open) ---
+    prismtrace_api_key: str = ""
+    prismtrace_project_id: str = ""
+    prismtrace_host: str = "https://prism-api-prod.up.railway.app"
+
     # --- Server ---
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     host: str = "0.0.0.0"

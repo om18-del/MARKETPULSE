@@ -14,6 +14,7 @@ from typing import Any
 
 from ..core.cache import TTLCache
 from ..core.config import get_settings
+from . import prism
 
 log = logging.getLogger("marketpulse.ai")
 
@@ -60,6 +61,7 @@ class GeminiClient:
         if cached is not None:
             return cached
 
+        t0 = prism.now_ms()
         last_exc: Exception | None = None
         candidates = [self.model_name] + [m for m in MODEL_LADDER if m != self.model_name]
         for model in candidates:
@@ -80,6 +82,12 @@ class GeminiClient:
 
                     text = await asyncio.to_thread(_call)
                     self._cache.set(cache_key, text, ttl)
+                    # PRISM: forward the real call (fail-open, never blocks)
+                    await prism.emit_llm(
+                        model=model, prompt=prompt, output=text,
+                        latency_ms=(prism.now_ms() - t0),
+                        metadata={"attempt": attempt + 1, "cached": False},
+                    )
                     return text
                 except Exception as exc:
                     last_exc = exc
@@ -125,6 +133,8 @@ class GeminiClient:
         if cached is not None:
             return cached
 
+        t0_img = prism.now_ms()
+
         def _call() -> str:
             from google.genai import types
 
@@ -140,6 +150,10 @@ class GeminiClient:
 
         text = await asyncio.to_thread(_call)
         self._cache.set(cache_key, text, 600)
+        await prism.emit_llm(
+            model=self.model_name, prompt=prompt, output=text,
+            latency_ms=(prism.now_ms() - t0_img), metadata={"vision": True},
+        )
         return text
 
 

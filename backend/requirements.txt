@@ -12,3 +12,5 @@ lxml>=5.3
 google-genai>=1.0
 # Caching
 cachetools>=5.5
+# Observability — PRISM live tracing (LLM calls, latency, trajectories)
+prismtrace-sdk>=0.4.3
