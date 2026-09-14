@@ -598,11 +598,29 @@ async def timeframe_analysis(instrument_id: str, force: bool = False) -> dict[st
     intraday = timeframe_stats(intraday_rows or [], "intraday")
     daily = timeframe_stats(daily_rows or [], "daily")
     monthly = timeframe_stats(monthly_rows or [], "monthly")
-    for tf in (intraday, daily, monthly):
+
+    def _chart_bars(rows: list[dict] | None, limit: int) -> list[dict]:
+        """Downsample bars for the per-timeframe chart (oldest -> newest)."""
+        if not rows:
+            return []
+        step = max(1, len(rows) // limit)
+        trimmed = rows[::step][-limit:]
+        return [{"time": r.get("time") or r.get("date"),
+                 "close": r.get("close")} for r in trimmed if r.get("close") is not None]
+
+    for tf, raw in ((intraday, intraday_rows), (daily, daily_rows), (monthly, monthly_rows)):
         if tf["available"]:
-            tf["source"] = ("official NSE files" if tf is daily and inst.region == "india"
-                            and not str(ysym or "").startswith("^") else
-                            f"Yahoo ({ysym})" if ysym else None)
+            is_official_nse = (tf is daily and inst.region == "india"
+                               and not str(ysym or "").startswith("^"))
+            tf["source"] = "official NSE files" if is_official_nse else (f"Yahoo ({ysym})" if ysym else None)
+            # Per-timeframe chart: the graph changes with the tab (intraday
+            # shows the 5-minute path, monthly the 10-year arc).
+            tf["chart"] = {
+                "bars": _chart_bars(raw, 400),
+                "interval_note": {"intraday": "5-minute bars (last 5 trading days, IST)",
+                                  "daily": "daily closes (last ~1 year)",
+                                  "monthly": "monthly closes (last 10 years)"}[tf["kind"]],
+            }
 
     out = {
         "instrument": inst.to_dict(),

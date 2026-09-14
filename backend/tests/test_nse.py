@@ -423,6 +423,32 @@ def test_timeframe_stats_too_few_bars_is_unavailable():
     assert out["available"] is False and "bars" in out["reason"]
 
 
+def test_timeframe_stats_detail_metrics_and_explanations():
+    """The detailed payload: 9 explained factors + hard-numbers metrics grid."""
+    from app.engines.timeframes import timeframe_stats
+
+    rows = [{"close": 100 + i * 0.5, "volume": 1000 + i * 10} for i in range(60)]
+    out = timeframe_stats(rows, "daily")
+    assert out["available"]
+    assert len(out["factors"]) >= 8, "detailed factor battery expected"
+    assert all(f.get("explain") for f in out["factors"]), "every factor must carry a plain-English explanation"
+
+    m = out["metrics"]
+    assert m["last_close"] == 129.5
+    assert m["rsi14"] is not None and 0 < m["rsi14"] <= 100
+    assert m["sma20"] and m["ema9"] and m["ema21"]
+    assert m["volatility_ann_pct"] is not None
+    assert m["bars"] == 60 and m["window"]
+    # scale sanity: annualized daily vol for a smooth uptrend stays low
+    assert 0 < m["volatility_ann_pct"] < 60
+
+    # monthly skips volume factors but keeps the grid complete
+    mrows = [{"close": 100 + i, "volume": 1000} for i in range(40)]
+    mo = timeframe_stats(mrows, "monthly")
+    assert mo["metrics"]["updown_volume"] is None
+    assert mo["metrics"]["rsi14"] is not None
+
+
 def test_tf_symbol_maps_nse_and_bse_dynamic_ids():
     """Dynamic universe stocks get automatic .NS/.BO Yahoo symbols."""
     from app import service

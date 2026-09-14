@@ -113,6 +113,22 @@ MARKETPULSE/
 
 **API:** `GET /api/overview · /api/search?q= · /api/asset/{id} · /api/analysis/{id} · /api/fx · /api/news?topic= · /api/recap · /api/dictionary · /api/methodology · /api/health` — `POST /api/chat · /api/assistant · /api/analyze-image · /api/fx/convert · /api/demo/toggle`. Interactive docs at `/docs`.
 
+## 📈 Rate limits & scaling
+
+The data plane is **keyless** (NSE archive files, Yahoo chart API, ECB
+Frankfurter), so request ceilings are set by those sources plus the app's own
+caches — not by any paid plan. How to raise throughput as usage grows:
+
+| Lever | What to do |
+|---|---|
+| **Caches** | TTLs live in `backend/app/core/config.py` (`quote_ttl_seconds`, `daily_ttl_seconds`, analysis/timeframe caches ≈300s). Longer TTLs = fewer upstream calls. Raise `daily_ttl_seconds` in production — EOD files never change after publication. |
+| **Shared cache** | The in-process caches are per-worker. For scale, move `TTLCache` in `backend/app/core/cache.py` to Redis (same interface) so all workers share one cache and one upstream budget. |
+| **Pre-warm the board** | A 60s background task hitting `/api/overview` keeps the whole board hot — visitors then hit cache, not NSE/Yahoo. |
+| **Yahoo limits** | The keyless chart API tolerates roughly a few thousand calls/day per IP in practice; the 5-min TTL on timeframes and 6h history TTL keep typical use far below it. For heavier load, paid APIs (Twelve Data grow plans; TrueData/GDFL for tick-level NSE) slot into the existing provider chain in `backend/app/data/providers/`. |
+| **NSE files** | Bhavcopy/indices files are static per day — fetched once per day per file (already how the store works; nothing to tune). |
+| **Gemini (AI)** | Free-tier quota ladders live in `backend/app/ai/gemini_client.py`. A paid AI Studio / Vertex key raises RPM/TPM instantly — set `GEMINI_MODEL` to match. |
+| **Server** | `uvicorn app.main:app --workers 4` behind nginx/Render scales analysis; data fetching is async and IO-bound. |
+
 ## ☁️ Deploy to the web (free)
 
 **Recommended: Vercel (frontend) + Render (backend)**
