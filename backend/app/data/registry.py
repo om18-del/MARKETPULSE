@@ -239,6 +239,26 @@ def get(instrument_id: str) -> Instrument | None:
     return ALL.get(instrument_id.lower().strip())
 
 
+TICKER_SUFFIXES = {
+    ".NS": "nse", ".NSE": "nse",   # Yahoo-style NSE suffix
+    ".BO": "bse", ".BSE": "bse",   # Yahoo-style BSE suffix
+}
+
+
+def parse_ticker_suffix(query: str) -> tuple[str, str | None]:
+    """'SBIN.BO' -> ('SBIN', 'bse'); 'TCS.NS' -> ('TCS', 'nse'); else (query, None).
+
+    Users paste tickers in the Yahoo convention (RELIANCE.NS, SBIN.BO);
+    MarketPulse resolves them to the right exchange source.
+    """
+    q = query.strip()
+    upper = q.upper()
+    for suf, exch in TICKER_SUFFIXES.items():
+        if upper.endswith(suf) and len(q) > len(suf):
+            return q[: -len(suf)].strip().upper(), exch
+    return q.upper(), None
+
+
 def symbol_for(instrument: Instrument, provider: str) -> str | None:
     """Provider symbol for an instrument, or None if unsupported there."""
     return getattr(instrument, provider, None)

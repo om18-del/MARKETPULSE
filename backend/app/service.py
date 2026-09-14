@@ -20,6 +20,7 @@ from .core.config import get_settings
 from .data.aggregator import get_aggregator
 from .data.india_store import get_store
 from .data.registry import ALL, REGISTRY, Instrument
+from .data.registry import parse_ticker_suffix
 from .data.registry import search as search_registry
 from .demo.snapshots import demo_history
 from .engines import fx as fx_engine
@@ -601,32 +602,56 @@ def toggle_demo(enabled: bool) -> dict[str, Any]:
 
 
 async def search_all(q: str) -> dict[str, Any]:
-    """Search the static registry PLUS the full NSE listed universe.
+    """Search the static registry PLUS the full NSE + BSE listed universes.
 
-    The universe comes from the Dhan public scrip master (symbol -> company
-    name for every NSE-listed equity, cached in-process) merged dynamically,
-    so users can find ANY NSE-listed company, not just flagship tickers.
+    Users can paste tickers in the Yahoo convention — RELIANCE.NS or
+    SBIN.BO — and get the exact instrument (suffix chooses the exchange:
+    .NS/.NSE -> official NSE files, .BO/.BSE -> Alpha Vantage BSE history).
+    Fuzzy search then covers company names across both universes.
     """
     agg = get_aggregator()
     extra: dict[str, Any] = {}
     universe_ok = False
+    nse_error: str | None = None
     try:
-        names = (await agg.india.names()).get("nse", {})
-        for sym, name in names.items():
+        names = await agg.india.names()
+        for sym, name in names.get("nse", {}).items():
             uid = f"nse-{sym.lower()}"
             extra[uid] = Instrument(
                 id=uid, name=name, category="stock", region="india",
                 currency="INR", stooq=None, twelvedata=None, finnhub=None,
                 alphavantage=None, nse=sym, weight=0.6, keywords=(sym.lower(),),
             )
+        for sym, name in names.get("bse", {}).items():
+            uid = f"bse-{sym.lower()}"
+            extra[uid] = Instrument(
+                id=uid, name=name, category="stock", region="india",
+                currency="INR", stooq=None, twelvedata=None, finnhub=None,
+                alphavantage=f"{sym}.BO", nse=None, weight=0.5,
+                keywords=(sym.lower(),),
+            )
         universe_ok = bool(extra)
     except Exception as exc:
         nse_error = str(exc)
-    else:
-        nse_error = None
+
+    # Exact pasted-ticker resolution (RELIANCE.NS / SBIN.BO / TCS) wins first.
+    bare, exch = parse_ticker_suffix(q)
+    exact: Instrument | None = None
+    if exch == "nse" and bare in (await agg.india.names()).get("nse", {}):
+        exact = await agg.dynamic_instrument(f"nse-{bare.lower()}")
+    elif exch == "bse" and bare in (await agg.india.names()).get("bse", {}):
+        exact = await agg.dynamic_instrument(f"bse-{bare.lower()}")
+    elif exch is None and bare in (await agg.india.names()).get("nse", {}):
+        exact = await agg.dynamic_instrument(f"nse-{bare.lower()}")
+
     hits = search_registry(q, limit=10, extra=extra)
+    results: list[dict[str, Any]] = []
+    if exact is not None:
+        results.append({**exact.to_dict(), "category_label": "stock"})
+    results.extend({**h.to_dict(), "category_label": h.category}
+                   for h in hits if h.id != (exact.id if exact else None))
     return {"query": q,
-            "results": [{**h.to_dict(), "category_label": h.category} for h in hits],
+            "results": results[:10],
             "nse_universe": universe_ok,
             "nse_error": nse_error,
             "disclaimer": DISCLAIMER}

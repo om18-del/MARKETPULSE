@@ -200,6 +200,70 @@ def test_demo_history_no_future_dates():
     assert all(r["date"] <= date.today().isoformat() for r in rows[-5:])
 
 
+# ------------------------------------------------- yahoo ticker suffixes --
+def test_parse_ticker_suffix():
+    from app.data.registry import parse_ticker_suffix
+    assert parse_ticker_suffix("RELIANCE.NS") == ("RELIANCE", "nse")
+    assert parse_ticker_suffix("tcs.ns") == ("TCS", "nse")
+    assert parse_ticker_suffix("SBIN.BO") == ("SBIN", "bse")
+    assert parse_ticker_suffix("INFY.NSE") == ("INFY", "nse")
+    assert parse_ticker_suffix("RELIANCE.BSE") == ("RELIANCE", "bse")
+    assert parse_ticker_suffix(" reliance ") == ("RELIANCE", None)
+    assert parse_ticker_suffix(".NS") == (".NS", None)  # no bare symbol
+
+
+def test_bse_dynamic_instrument_maps_to_alphavantage():
+    import asyncio
+    from app.data.aggregator import Aggregator
+
+    async def main():
+        agg = Aggregator()
+        agg.india._names = {"nse": {}, "bse": {"SBIN": "State Bank of India"}}
+        return await agg.dynamic_instrument("bse-sbin")
+
+    inst = asyncio.run(main())
+    assert inst is not None and inst.currency == "INR"
+    assert inst.alphavantage == "SBIN.BO"
+    from app.data.registry import symbol_for
+    assert symbol_for(inst, "alphavantage") == "SBIN.BO"
+
+
+def test_search_exact_ticker_suffix_resolution():
+    """RELIANCE.NS-style pastes resolve to the exact instrument first."""
+    import asyncio
+    from app import service
+    from app.data.registry import Instrument
+
+    async def main():
+        # minimal stub: only the name master matters for exact resolution
+        class FakeAgg:
+            class india:  # noqa: N801
+                _names = {"nse": {"RELIANCE": "Reliance Industries"},
+                          "bse": {}}
+
+                @staticmethod
+                async def names():
+                    return FakeAgg.india._names
+
+            async def dynamic_instrument(self, uid):
+                return Instrument(
+                    id=uid, name="Reliance Industries", category="stock",
+                    region="india", currency="INR", stooq=None,
+                    twelvedata=None, finnhub=None, alphavantage=None,
+                    nse="RELIANCE", weight=0.6, keywords=("reliance",))
+
+        real = service.get_aggregator
+        service.get_aggregator = lambda: FakeAgg()  # type: ignore[assignment]
+        try:
+            return await service.search_all("RELIANCE.NS")
+        finally:
+            service.get_aggregator = real
+
+    out = asyncio.run(main())
+    assert out["results"], "exact result expected"
+    assert out["results"][0]["id"] == "nse-reliance"
+
+
 # ---------------------------------------------------------- INR default ---
 def test_fx_route_default_base_is_inr():
     import inspect

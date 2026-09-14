@@ -57,7 +57,7 @@ export function SearchBar({ autoFocus = false }: { autoFocus?: boolean }) {
         className="search-input"
         value={q}
         autoFocus={autoFocus}
-        placeholder="Search any stock or index — RELIANCE, AAPL, TSLA, NIFTY 50…"
+        placeholder="Search any stock or index — RELIANCE, RELIANCE.NS, SBIN.BO, TCS, NIFTY 50…"
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => results.length && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 180)}

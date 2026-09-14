@@ -190,22 +190,35 @@ class Aggregator:
 
     # ------------------------------------------------------------------
     async def dynamic_instrument(self, instrument_id: str) -> Instrument | None:
-        """Resolve a dynamic id `nse-<symbol>` against the Dhan name master.
+        """Resolve dynamic ids against the Dhan name master.
 
         The full NSE + BSE listed universe (~2000 + ~4500 equities) becomes
-        searchable/trackable without hardcoding anything.
+        searchable/trackable without hardcoding anything:
+        * `nse-<symbol>` — NSE path: official NSE bhavcopy history.
+        * `bse-<symbol>` — BSE path: Alpha Vantage daily history
+          (BSE's own endpoints are bot-gated; AV free covers .BO).
         """
-        if not instrument_id.startswith("nse-"):
-            return None
-        sym = instrument_id[4:].upper().replace("%20", " ")
-        names = await self.india.names()
-        name = names["nse"].get(sym) or sym
-        return Instrument(
-            id=f"nse-{sym.lower()}", name=name, category="stock",
-            region="india", currency="INR", stooq=None, twelvedata=None,
-            finnhub=None, alphavantage=None, nse=sym,
-            weight=0.6, keywords=(sym.lower(),),
-        )
+        if instrument_id.startswith("nse-"):
+            sym = instrument_id[4:].upper().replace("%20", " ")
+            names = await self.india.names()
+            name = names["nse"].get(sym) or sym
+            return Instrument(
+                id=f"nse-{sym.lower()}", name=name, category="stock",
+                region="india", currency="INR", stooq=None, twelvedata=None,
+                finnhub=None, alphavantage=None, nse=sym,
+                weight=0.6, keywords=(sym.lower(),),
+            )
+        if instrument_id.startswith("bse-"):
+            sym = instrument_id[4:].upper().replace("%20", " ")
+            names = await self.india.names()
+            name = names["bse"].get(sym) or names["nse"].get(sym) or sym
+            return Instrument(
+                id=f"bse-{sym.lower()}", name=name, category="stock",
+                region="india", currency="INR", stooq=None, twelvedata=None,
+                finnhub=None, alphavantage=f"{sym}.BO", nse=None,
+                weight=0.6, keywords=(sym.lower(),),
+            )
+        return None
 
 
 aggregator = Aggregator()
