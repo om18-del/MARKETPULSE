@@ -16,7 +16,7 @@ a fabricated 140k.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -29,6 +29,17 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 def _to_iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, tz=timezone.utc).date().isoformat()
+
+
+def _to_key(epoch: float, interval: str) -> str:
+    """Chart key: date for 1d/1mo, date+HH:MM (IST) for intraday intervals."""
+    dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+    if interval in ("1d", "1mo"):
+        return dt.date().isoformat()
+    # NSE/BSE trade in IST; Yahoo's epoch needs +5:30 for correct session labels
+    ist = timezone(timedelta(hours=5, minutes=30))
+    local = datetime.fromtimestamp(epoch, tz=ist)
+    return f"{local.date().isoformat()} {local:%H:%M}"
 
 
 class YahooChartProvider:
@@ -53,10 +64,20 @@ class YahooChartProvider:
 
     async def fetch_history(self, symbol: str, rng: str = "1y") -> list[dict]:
         """Daily bars, oldest -> newest: {date, open, high, low, close, volume}."""
+        return await self.fetch_bars(symbol, rng=rng, interval="1d")
+
+    async def fetch_bars(self, symbol: str, *, rng: str, interval: str) -> list[dict]:
+        """Bars at any Yahoo interval (5m intraday, 1d, 1mo monthly).
+
+        Rows: {time, open, high, low, close, volume} oldest -> newest with
+        strictly unique ascending `time` keys ("YYYY-MM-DD" for daily/monthly,
+        "YYYY-MM-DD HH:MM" for intraday) so the UI chart can consume them
+        directly without crashing on duplicates.
+        """
         url = BASE_URL.format(symbol=httpx.QueryParams({"s": symbol})["s"])
         try:
             http = await self._client()
-            resp = await http.get(url, params={"range": rng, "interval": "1d"})
+            resp = await http.get(url, params={"range": rng, "interval": interval})
         except Exception as exc:
             raise ProviderError(f"yahoo network error: {exc}") from exc
 
@@ -76,17 +97,18 @@ class YahooChartProvider:
         vols = quote.get("volume") or []
 
         rows: list[dict] = []
-        last_date = ""
+        last_key = ""
         for i, t in enumerate(ts):
             close = closes[i] if i < len(closes) else None
             if close is None:
-                continue  #Yahoo emits null placeholders on halt days
-            d = _to_iso(t)
-            if d <= last_date:
+                continue  # Yahoo emits null placeholders on halt days
+            key = _to_key(t, interval)
+            if key <= last_key:
                 continue  # strict uniqueness for chart safety
-            last_date = d
+            last_key = key
             rows.append({
-                "date": d,
+                "time": key,
+                "date": key.split(" ")[0],
                 "open": opens[i] if i < len(opens) else None,
                 "high": highs[i] if i < len(highs) else None,
                 "low": lows[i] if i < len(lows) else None,

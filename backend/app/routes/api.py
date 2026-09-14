@@ -100,6 +100,15 @@ async def analysis_progress(instrument_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/timeframes/{instrument_id}")
+async def timeframes(instrument_id: str, force: bool = Query(False)) -> dict:
+    """Bullish/bearish stats per timeframe: intraday (5m) · daily · monthly."""
+    try:
+        return await service.timeframe_analysis(instrument_id, force=force)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 # --------------------------------- news --------------------------------
 @router.get("/news")
 async def news(topic: str = Query("india")) -> dict:

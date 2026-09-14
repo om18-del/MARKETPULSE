@@ -401,6 +401,44 @@ def test_aggregator_tries_yahoo_before_stooq():
     assert names.index("yahoo") < names.index("stooq")
 
 
+# ----------------------------------------- multi-timeframe stats (feature) --
+def test_timeframe_stats_bullish_and_bearish():
+    """Rising bars -> BULLISH factors dominate; falling bars -> BEARISH."""
+    from app.engines.timeframes import timeframe_stats
+
+    up = [{"close": 100 + i, "volume": 1000} for i in range(40)]
+    bull = timeframe_stats(up, "daily")
+    assert bull["available"] and bull["label"] == "BULLISH"
+    assert bull["bull_count"] > bull["bear_count"]
+
+    down = [{"close": 140 - i, "volume": 1000} for i in range(40)]
+    bear = timeframe_stats(down, "daily")
+    assert bear["available"] and bear["label"] == "BEARISH"
+    assert bear["bear_count"] > bear["bull_count"]
+
+
+def test_timeframe_stats_too_few_bars_is_unavailable():
+    from app.engines.timeframes import timeframe_stats
+    out = timeframe_stats([{"close": 100 + i} for i in range(5)], "intraday")
+    assert out["available"] is False and "bars" in out["reason"]
+
+
+def test_tf_symbol_maps_nse_and_bse_dynamic_ids():
+    """Dynamic universe stocks get automatic .NS/.BO Yahoo symbols."""
+    from app import service
+    from app.data.registry import Instrument
+
+    nse_stock = Instrument(id="nse-tcs", name="TCS", category="stock", region="india",
+                           currency="INR", stooq=None, twelvedata=None, finnhub=None,
+                           alphavantage=None, nse="TCS")
+    bse_stock = Instrument(id="bse-sbin", name="SBI", category="stock", region="india",
+                           currency="INR", stooq=None, twelvedata=None, finnhub=None,
+                           alphavantage="SBIN.BO", nse=None)
+    assert service._tf_symbol(nse_stock) == "TCS.NS"
+    assert service._tf_symbol(bse_stock) == "SBIN.BO"
+    assert service._tf_symbol(get("sensex")) == "^BSESN"
+
+
 # --------------------------------- progress endpoint for dynamic ids (bug) --
 def test_analysis_progress_accepts_dynamic_nse_id():
     """The UI polls /analysis/<id>/progress for searched stocks (dynamic

@@ -36,6 +36,41 @@ DEMO_STATE = {"forced": False}
 
 DISCLAIMER = "Educational information — not investment advice."
 
+# Yahoo symbols for the intraday/monthly timeframe feature. Daily data keeps
+# its India-first sources; intraday (5m) and monthly (1mo) come from Yahoo's
+# keyless chart API (verified for NSE (.NS), BSE (.BO) and major indices).
+_TF_YAHOO: dict[str, str] = {
+    "nifty50": "^NSEI", "sensex": "^BSESN", "niftybank": "^NSEBANK",
+    "niftyit": "^CNXIT", "niftynext50": "^NSMIDCP", "niftyfin": "^CNXFIN",
+    "sp500": "^GSPC", "nasdaq": "^NDX", "dowjones": "^DJI",
+    "russell2000": "^RUT", "vix": "^VIX", "ftse100": "^FTSE",
+    "dax": "^GDAXI", "cac40": "^FCHI", "eurostoxx50": "^STOXX50E",
+    "nikkei225": "^N225", "hangseng": "^HSI", "kospi": "^KS11", "asx200": "^AXJO",
+    "gold": "GC=F", "crude": "CL=F", "dxy": "DX-Y.NYB", "us10y": "^TNX",
+    "usdinr": "USDINR=X", "eurusd": "EURUSD=X", "gbpusd": "GBPUSD=X",
+    "usdjpy": "USDJPY=X", "usdcny": "USDCNY=X", "audusd": "AUDUSD=X",
+    "usdcad": "USDCAD=X", "usdchf": "USDCHF=X",
+    "aapl": "AAPL", "msft": "MSFT", "googl": "GOOGL", "tsla": "TSLA",
+    "amzn": "AMZN", "nvda": "NVDA",
+}
+
+
+def _tf_symbol(inst: Instrument) -> str | None:
+    """Yahoo symbol for intraday/monthly bars: curated map first, then
+    automatic NSE (.NS) / BSE (.BO) mapping for dynamic universe stocks."""
+    sym = _TF_YAHOO.get(inst.id)
+    if sym:
+        return sym
+    if inst.nse:
+        return f"{inst.nse}.NS"
+    if getattr(inst, "alphavantage", None) and ".BO" in (inst.alphavantage or ""):
+        return inst.alphavantage  # already Yahoo-style BSE symbol (SBIN.BO)
+    if inst.id.startswith("bse-"):
+        return f"{inst.id[4:].upper()}.BO"
+    if inst.id.startswith("nse-"):
+        return f"{inst.id[4:].upper()}.NS"
+    return getattr(inst, "yahoo", None)
+
 NEWS_TOPIC_BY_REGION = {
     "us": "us", "india": "india", "europe": "global",
     "apac": "global", "macro": "macro", "fx": "fx",
@@ -503,6 +538,103 @@ async def nse_status() -> dict[str, Any]:
         "store": store.health(),
         "disclaimer": DISCLAIMER,
     }
+
+
+_TF_CACHE: dict[str, tuple[float, dict]] = {}
+_TF_TTL = 300.0  # 5 min — intraday bars refresh within the trading session
+
+
+async def timeframe_analysis(instrument_id: str, force: bool = False) -> dict[str, Any]:
+    """Bullish/bearish stats per timeframe: intraday (5m) · daily · monthly.
+
+    Daily reuses the India-first daily history (official NSE files for Indian
+    instruments). Intraday and monthly come from Yahoo's keyless chart API.
+    Each timeframe is computed independently and honestly labeled — a missing
+    intraday symbol degrades to 'unavailable', never fabricated data.
+    """
+    inst = ALL.get(instrument_id)
+    if inst is None:
+        inst = await get_aggregator().dynamic_instrument(instrument_id)
+    if inst is None:
+        raise ValueError(f"unknown instrument: {instrument_id}")
+
+    cache_key = f"tf:{inst.id}"
+    hit = _TF_CACHE.get(cache_key)
+    if hit and not force and time.monotonic() - hit[0] < _TF_TTL:
+        return hit[1]
+
+    # PRISM: one trajectory per timeframe request
+    prism.new_session(f"timeframes-{inst.id}")
+
+    from .engines.timeframes import timeframe_stats
+    from .data.providers.yahoo import YahooChartProvider
+
+    ysym = _tf_symbol(inst)
+    yahoo = YahooChartProvider()
+
+    async def _bars(rng: str, interval: str) -> list[dict] | None:
+        if not ysym:
+            return None
+        try:
+            return await yahoo.fetch_bars(ysym, rng=rng, interval=interval)
+        except Exception:
+            return None
+
+    # daily: prefer the India-first chain (official NSE files), Yahoo fallback
+    async def _daily() -> list[dict] | None:
+        try:
+            hist, _used_demo = await _history_with_demo(inst.id, force_refresh=force)
+            rows = hist.get("rows") or []
+            if len(rows) >= 30 and not _used_demo:
+                return rows
+        except Exception:
+            pass
+        return await _bars("1y", "1d")
+
+    intraday_rows, daily_rows, monthly_rows = await asyncio.gather(
+        _bars("5d", "5m"), _daily(), _bars("10y", "1mo"),
+    )
+
+    intraday = timeframe_stats(intraday_rows or [], "intraday")
+    daily = timeframe_stats(daily_rows or [], "daily")
+    monthly = timeframe_stats(monthly_rows or [], "monthly")
+    for tf in (intraday, daily, monthly):
+        if tf["available"]:
+            tf["source"] = ("official NSE files" if tf is daily and inst.region == "india"
+                            and not str(ysym or "").startswith("^") else
+                            f"Yahoo ({ysym})" if ysym else None)
+
+    out = {
+        "instrument": inst.to_dict(),
+        "yahoo_symbol": ysym,
+        "timeframes": {"intraday": intraday, "daily": daily, "monthly": monthly},
+        "consensus": _tf_consensus(intraday, daily, monthly),
+        "disclaimer": DISCLAIMER,
+    }
+    _TF_CACHE[cache_key] = (time.monotonic(), out)
+    return out
+
+
+def _tf_consensus(intraday: dict, daily: dict, monthly: dict) -> dict[str, Any]:
+    """Cross-timeframe alignment summary — the 'clear outlook' across horizons."""
+    labels = {k: tf.get("label") for k, tf in
+              (("intraday", intraday), ("daily", daily), ("monthly", monthly))
+              if tf.get("available")}
+    if not labels:
+        return {"verdict": "unavailable"}
+    bulls = sum(1 for v in labels.values() if v == "BULLISH")
+    bears = sum(1 for v in labels.values() if v == "BEARISH")
+    if bulls == len(labels):
+        verdict, note = "BULLISH", "All timeframes align bullish — trend confirmed across horizons."
+    elif bears == len(labels):
+        verdict, note = "BEARISH", "All timeframes align bearish — selling pressure across horizons."
+    elif bulls > bears:
+        verdict, note = "BULLISH", f"Mostly bullish ({bulls}/{len(labels)} timeframes); mixed signals exist."
+    elif bears > bulls:
+        verdict, note = "BEARISH", f"Mostly bearish ({bears}/{len(labels)} timeframes); mixed signals exist."
+    else:
+        verdict, note = "MIXED", "Timeframes disagree — no dominant direction."
+    return {"verdict": verdict, "note": note, "labels": labels}
 
 
 async def fx_overview() -> dict[str, Any]:

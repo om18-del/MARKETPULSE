@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
-import { GitCompare, ArrowLeft, Sparkles, Sigma } from 'lucide-react'
+import { GitCompare, ArrowLeft, Sparkles, Sigma, Clock } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { RegimeGauge } from '../components/Verdict'
@@ -11,6 +11,7 @@ import { NewsList } from '../components/NewsList'
 import { ImageAnalyzer } from '../components/ImageAnalyzer'
 import { LoadingProgress } from '../components/LoadingProgress'
 import { OutlookCard } from '../components/OutlookCard'
+import { TimeframeStats } from '../components/TimeframeStats'
 import { CardSkeleton } from '../components/Skeletons'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import type { Analysis, AssetDetail } from '../types'
@@ -84,6 +85,16 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
             {d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}
           </ErrorBoundary>
         </div>
+      </section>
+
+      {/* Intraday · Daily · Monthly bullish/bearish stats */}
+      <section className="section">
+        <h2 className="card-title" style={{ fontSize: 15 }}>
+          <Clock size={15} /> Timeframe signals — intraday, daily & monthly
+        </h2>
+        <ErrorBoundary name="TimeframeStats">
+          <TimeframeStats instrumentId={id} />
+        </ErrorBoundary>
       </section>
 
       {/* Live progress: stage + time remaining for the deep analysis */}
