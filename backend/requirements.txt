@@ -1,0 +1,14 @@
+# Core
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+pydantic-settings>=2.6
+python-dotenv>=1.0
+httpx>=0.28
+# HTML/XML parsing for RSS + Stooq CSV cleanup
+beautifulsoup4>=4.12
+lxml>=5.3
+# AI
+google-genai>=1.0
+# Caching
+cachetools>=5.5

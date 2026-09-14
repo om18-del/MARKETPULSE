@@ -1,0 +1,53 @@
+{
+  "title": "How MarketPulse Reaches Every Verdict",
+  "philosophy": [
+    "Every number shown is computed deterministically from public market data — the AI never invents one.",
+    "The AI's only job is to translate these numbers into plain English. The verdict comes from math, not the model.",
+    "Nothing here is investment advice, a prediction, or a recommendation. It is a snapshot of the current environment, always shown with its evidence."
+  ],
+  "regime_model": {
+    "description": "A weighted score blends four price/volume factors plus a capped news modifier into a 0-100 scale, mapped to Bullish / Bearish / Neutral / Uncertain.",
+    "scale": "Raw factor scores live in [-1, +1]; the blend maps to 0-100 via (raw+1)/2*100.",
+    "weights": {
+      "trend": 0.35,
+      "momentum": 0.25,
+      "volatility": 0.25,
+      "volume": 0.15,
+      "news_modifier_cap": 0.10
+    },
+    "why_these_weights": "Trend is heaviest because the position of price relative to its moving averages is the most stable beginner-readable signal. Momentum and volatility are equal co-factors: one measures direction strength, the other measures reliability of that direction. Volume confirms whether moves are broadly participated. News is capped at ±10% so headlines can influence — never dominate — the math.",
+    "verdict_mapping": {
+      "neutral": "|raw score| < 0.12 and no volatility alarm",
+      "uncertain": "realized volatility above 28% annualized pushes the read here regardless of direction",
+      "bullish": "raw score > 0 (directional, low-to-moderate volatility)",
+      "bearish": "raw score < 0 (directional, low-to-moderate volatility)"
+    },
+    "confidence": "Directional confidence is dampened as realized volatility rises above 28%; neutral and uncertain verdicts are additionally capped (60% and 55% respectively) so the UI never overstates them."
+  },
+  "indicators": [
+    {"name": "Simple Moving Averages (20/50/200)", "origin": "Standard practice in technical analysis for over a century", "what": "The average close of the last N days, redrawn daily.", "why": "Price above its 50-day average is the most beginner-readable trend marker; the 200-day separates long-term uptrends from downtrends.", "rule_in_app": "±5% distance from an SMA saturates that sub-factor's contribution."},
+    {"name": "RSI (14)", "origin": "J. Welles Wilder, 'New Concepts in Technical Trading Systems' (1978)", "what": "0-100 score comparing recent average gains to average losses.", "why": "Above 70 traditionally flags an extended run-up ('overbought'); below 30 an extended decline. MarketPulse treats extremes as a momentum-stretch caution, not a signal.", "rule_in_app": "≥70 contributes -0.5 to momentum (stretch risk), ≤30 contributes +0.5 (downside stretch)."},
+    {"name": "MACD (12/26/9)", "origin": "Gerald Appel, 1970s", "what": "Gap between fast and slow exponential averages, plus a signal line.", "why": "A positive histogram means short-term momentum runs above the longer trend — a directional read.", "rule_in_app": "Histogram normalized by ±1% of price before contributing."},
+    {"name": "Bollinger Bands (20, 2σ)", "origin": "John Bollinger, 1980s", "what": "Moving average ± two standard deviations.", "why": "Bands widen with volatility; prices at the bands are statistically stretched. Shown for context on detail pages."},
+    {"name": "ATR (14)", "origin": "Wilder (1978)", "what": "Average true daily range.", "why": "Bigger ATR% = bigger typical daily swings = less reliable any single day's direction.", "rule_in_app": "ATR ≥ 4% of price contributes strongly to the volatility factor."},
+    {"name": "Realized Volatility (20d, annualized)", "origin": "Standard return statistics", "what": "Standard deviation of the last 20 daily returns, annualized.", "why": "Above ~28% annualized, outcomes become hard to anticipate — this is exactly what pushes MarketPulse's read toward 'Uncertain'.", "rule_in_app": "12% treated as calm baseline; 42%+ saturates the volatility factor; >28% triggers uncertainty dampening."},
+    {"name": "OBV (On-Balance Volume)", "origin": "Joe Granville, 1963", "what": "Cumulative volume added on up-days, subtracted on down-days.", "why": "Its slope shows whether volume flows with or against price — the backbone of the volume-pressure proxy."},
+    {"name": "Up/Down Volume Ratio", "origin": "Standard accumulation/distribution practice", "what": "Volume on up-days divided by volume on down-days over 10 sessions.", "why": ">1.5 reads as accumulation; <0.67 as distribution."},
+    {"name": "VWAP & VWAP Z-Score", "origin": "Institutional execution benchmarking", "what": "Volume-weighted average price; the z-score measures how many standard deviations today's price sits from its rolling VWAP.", "why": "It is a statistical-stretch detector: |z| > 2 means the move is extended versus recent norms.", "rule_in_app": "|z| < 1 normal, 1-2 stretched, >2 extended."},
+    {"name": "VIX Velocity", "origin": "MarketPulse original (built on the CBOE VIX)", "what": "The 5-day change in VIX measured against its own history (z-score).", "why": "Fast fear spikes change the risk backdrop before prices do; velocity catches them earlier than level alone.", "rule_in_app": "|z| > 1.5 or ±15% in 5 days = volatility regime shift."},
+    {"name": "Cross-Asset Pressure Matrix", "origin": "MarketPulse original (multi-asset synthesis)", "what": "Rolling 60-day correlation of each index against DXY, US 10Y, gold, crude and VIX, plus 5-day lead-lag agreement.", "why": "No index moves in isolation — dollar strength, rates and commodities systematically pressure equities. This makes the interaction loop visible to beginners.", "rule_in_app": "Correlations and lead agreement are displayed per driver in the Evidence panel."},
+    {"name": "52-Week Position", "origin": "Standard range analysis", "what": "Where price sits between its 52-week low (0%) and high (100%).", "why": "Instant range context for beginners."},
+    {"name": "Volume vs 20-day Average", "origin": "Standard participation check", "what": "Today's volume divided by the 20-day average.", "why": "Above-average volume confirms a move's participation; thin volume flags fragility."}
+  ],
+  "honesty_notes": [
+    "Volume-pressure is a PROXY: real institutional order-flow is private. Public volume data lets us estimate accumulation/distribution pressure, and we label it as an estimate everywhere.",
+    "News sentiment is computed from headlines only, with a deterministic keyword fallback when AI is unavailable. Headlines are linked so you can read the sources yourself.",
+    "All data carries provenance: which provider served each number and how fresh it is. If live data fails, Demo Mode data is clearly labeled.",
+    "Verdicts describe the present, never the future. Every analysis lists 'What would change this read' — the specific conditions that would flip it."
+  ],
+  "ai_separation": {
+    "analysis_engine": "Generates theses, recap and chat answers from deterministic features only. Prompt-constrained to never advise or predict; every number must come from the provided payload.",
+    "pulse_assistant": "Explains selected text in simpler words and answers general beginner questions. It never performs analysis, never produces verdicts, and never sees raw data beyond what is on your screen.",
+    "shared_rule": "Both end every answer with 'Educational information — not investment advice.'"
+  }
+}
