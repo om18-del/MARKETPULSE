@@ -1,0 +1,26 @@
+# Render.com blueprint — deploys the FastAPI backend as a free web service.
+# In the Render dashboard: New -> Blueprint -> point at this repo, or create
+# manually with these values.
+services:
+  - type: web
+    name: marketpulse-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false        # set in dashboard — never commit
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: TWELVEDATA_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: http://localhost:5173,https://marketpulse-frontend.vercel.app
+      - key: PYTHON_VERSION
+        value: "3.12.6"
