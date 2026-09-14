@@ -9,6 +9,7 @@ Every public method returns JSON-ready dicts with:
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from .ai import analysis as ai_analysis
@@ -168,6 +169,13 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
     if inst is None:
         raise ValueError(f"unknown instrument: {instrument_id}")
 
+    # Full-analysis cache: deep analysis is expensive (history + drivers + news
+    # + AI thesis). Cache for 5 minutes so repeat visits/refreshes are instant.
+    _analysis_cache_key = f"analysis:{inst.id}"
+    _hit = _ANALYSIS_CACHE.get(_analysis_cache_key)
+    if _hit and time.monotonic() - _hit[0] < 300:
+        return _hit[1]
+
     hist, used_demo = await _history_with_demo(inst.id)
     rows = hist["rows"]
     if len(rows) < 30:
@@ -175,19 +183,25 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
 
     gemini = get_gemini()
 
-    # --- news sentiment (cached by TTLCache upstream in gemini/none; rss cached here) ---
+    # --- fetch everything independent in parallel (was sequential: ~2min cold) ---
     topic = NEWS_TOPIC_BY_REGION.get(inst.region, "global")
-    news_payload = await _cached_news(topic)
+    news_task = _cached_news(topic)
+    vix_task = _history_with_demo("vix")
+    driver_tasks = {
+        did: _history_with_demo(did)
+        for did in DRIVER_IDS
+        if did != inst.id
+    }
+    news_payload, vix_bundle, driver_bundles = await asyncio.gather(
+        news_task, vix_task, asyncio.gather(*driver_tasks.values(), return_exceptions=True)
+    )
     tagged = news_payload.get("articles", [])[:8]
     news_for_regime = {"score": news_payload.get("aggregate_score", 0.0), "articles": tagged[:5]}
 
     # --- deterministic filters ---
     vix_rows = None
-    try:
-        vix_hist, _ = await _history_with_demo("vix")
-        vix_rows = vix_hist["rows"]
-    except Exception:
-        pass
+    if not isinstance(vix_bundle, Exception):
+        vix_rows = vix_bundle[0]["rows"]
     filters_bundle = {
         "vwap": vwap_zscore(rows),
         "volume_pressure": volume_pressure(rows),
@@ -196,15 +210,12 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
 
     # --- cross-asset pressure matrix ---
     driver_rows: dict[str, list] = {}
-    for did in DRIVER_IDS:
-        if did == inst.id:
+    for did, bundle in zip(driver_tasks.keys(), driver_bundles):
+        if isinstance(bundle, Exception):
             continue
-        try:
-            dh, _ = await _history_with_demo(did)
-            if dh["rows"]:
-                driver_rows[did] = dh["rows"]
-        except Exception:
-            continue
+        dh, _ = bundle
+        if dh["rows"]:
+            driver_rows[did] = dh["rows"]
     cross = cross_asset_pressure(rows, driver_rows)
 
     # --- regime ---
@@ -224,7 +235,7 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
     }
     thesis = await ai_analysis.build_thesis(gemini, features)
 
-    return {
+    result = {
         "available": True,
         "instrument": inst.to_dict(),
         "data_mode": "demo" if used_demo else "live",
@@ -237,13 +248,16 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
         "thesis": thesis,
         "disclaimer": DISCLAIMER,
     }
+    _ANALYSIS_CACHE[_analysis_cache_key] = (time.monotonic(), result)
+    return result
 
+
+_ANALYSIS_CACHE: dict[str, tuple[float, dict]] = {}
 
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 async def _cached_news(topic: str) -> dict[str, Any]:
-    import time
     hit = _NEWS_CACHE.get(topic)
     if hit and time.monotonic() - hit[0] < 600:
         return hit[1]

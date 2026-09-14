@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # --- AI ---
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.6-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
 
     # --- Providers ---
     twelvedata_api_key: str = ""

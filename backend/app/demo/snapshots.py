@@ -45,35 +45,39 @@ def _volume_for(instrument_id: str, i: int) -> int:
 
 
 def generate_history(instrument_id: str, days: int = 400) -> list[dict]:
+    """`days` = calendar window ending TODAY (never future dates)."""
     profile = PROFILE.get(instrument_id, (0.03, 1.0, 100.0))
     drift, vol, base = profile
+    end = date.today()
+    start = end - timedelta(days=days)
+    trading_days = sum(
+        1 for i in range(days + 1) if (start + timedelta(days=i)).weekday() < 5
+    )
     rows: list[dict] = []
-    price = base / (1 + drift / 100) ** days  # walk backwards from today's base
-    d0 = date.today() - timedelta(days=days + 7)
+    price = base / (1 + drift / 100) ** max(trading_days, 1)  # walk back from today's base
     trading = 0
-    cal = d0
-    while trading < days:
+    cal = start
+    while cal <= end:
+        if cal.weekday() < 5:  # skip weekends
+            trading += 1
+            w = _seeded_wave(instrument_id, trading)
+            shock = w * vol / 100
+            # occasional regime shift for realism
+            if trading % 47 == 0:
+                drift_step = 0.15 if _seeded_wave(instrument_id, trading + 999) > 0 else -0.15
+            else:
+                drift_step = 0.0
+            price = price * (1 + drift / 100 + drift_step + shock)
+            price = max(price, base * 0.3)
+            hi = price * (1 + abs(w) * vol / 250)
+            lo = price * (1 - abs(w) * vol / 250)
+            rows.append({
+                "date": cal.isoformat(),
+                "open": round(lo * 1.0005, 4), "high": round(hi, 4),
+                "low": round(lo, 4), "close": round(price, 4),
+                "volume": _volume_for(instrument_id, trading),
+            })
         cal += timedelta(days=1)
-        if cal.weekday() >= 5:  # skip weekends
-            continue
-        trading += 1
-        w = _seeded_wave(instrument_id, trading)
-        shock = w * vol / 100
-        # occasional regime shift for realism
-        if trading % 47 == 0:
-            drift_step = 0.15 if _seeded_wave(instrument_id, trading + 999) > 0 else -0.15
-        else:
-            drift_step = 0.0
-        price = price * (1 + drift / 100 + drift_step + shock)
-        price = max(price, base * 0.3)
-        hi = price * (1 + abs(w) * vol / 250)
-        lo = price * (1 - abs(w) * vol / 250)
-        rows.append({
-            "date": cal.isoformat(),
-            "open": round(lo * 1.0005, 4), "high": round(hi, 4),
-            "low": round(lo, 4), "close": round(price, 4),
-            "volume": _volume_for(instrument_id, trading),
-        })
     return rows
 
 

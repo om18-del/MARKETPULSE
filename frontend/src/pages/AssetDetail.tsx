@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
-import { GitCompare, ArrowLeft } from 'lucide-react'
+import { GitCompare, ArrowLeft, Sparkles, Sigma } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { RegimeGauge } from '../components/Verdict'
@@ -9,16 +9,29 @@ import { ThesisCard } from '../components/ThesisCard'
 import { PriceChart } from '../components/PriceChart'
 import { NewsList } from '../components/NewsList'
 import { ImageAnalyzer } from '../components/ImageAnalyzer'
-import { PageSkeleton } from '../components/Skeletons'
+import { CardSkeleton } from '../components/Skeletons'
 import type { Analysis, AssetDetail } from '../types'
-import { useState } from 'react'
+
+function AnalysisMethodChip({ analysis }: { analysis?: Analysis | null }) {
+  if (!analysis?.thesis) return null
+  const by = analysis.thesis.generated_by
+  const label =
+    by === 'gemini-analysis' ? '✨ AI thesis — Gemini, from the math below'
+      : by === 'deterministic-template' ? ' Thesis — deterministic template (AI off)'
+        : by === 'unavailable' ? ' Thesis — AI needs a Gemini key'
+          : ` Thesis — ${by}`
+  return (
+    <span className="chip" title="How this explanation was produced">
+      <Sparkles size={11} /> {label}
+    </span>
+  )
+}
 
 export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void }) {
   const { id = '' } = useParams()
   const detail = useApi<AssetDetail>(`/api/asset/${id}`)
   const analysis = useApi<Analysis>(`/api/analysis/${id}`)
   const watchlist = useWatchlist()
-  const [tab, setTab] = useState<'evidence' | 'thesis'>('evidence')
 
   if (detail.error) {
     return (
@@ -28,7 +41,7 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
       </div>
     )
   }
-  if (!detail.data) return <PageSkeleton />
+  if (!detail.data) return <CardSkeleton height={420} />
 
   const d = detail.data
   const a = analysis.data
@@ -43,6 +56,7 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
           {watchlist.has(d.instrument.id) ? '★ Watching' : '☆ Watch'}
         </button>
         {d.data_mode === 'demo' ? <span className="chip demo">DEMO DATA</span> : <span className="chip pos">live · via {d.quote?.provider}</span>}
+        <AnalysisMethodChip analysis={a} />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginTop: 10 }}>
@@ -60,13 +74,15 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
         ) : null}
       </div>
 
+      {/* Chart loads immediately from the lightweight asset endpoint */}
       <section className="section">
         <div className="card">{d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}</div>
       </section>
 
-      <section className="grid cols-2" style={{ alignItems: 'start' }}>
-        <div className="card">
-          <div className="card-title">Regime assessment</div>
+      {/* Verdict — always visible; appears as soon as analysis lands */}
+      <section className="grid cols-2" style={{ alignItems: 'stretch' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div className="card-title"><Sigma size={15} /> Regime verdict</div>
           {a?.assessment ? (
             <RegimeGauge
               verdict={a.assessment.verdict}
@@ -75,33 +91,59 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
               equation={a.assessment.equation}
             />
           ) : (
-            <p className="muted">{analysis.loading ? 'Scoring the regime…' : 'Assessment unavailable.'}</p>
+            <div style={{ padding: '20px 0' }}>
+              <CardSkeleton height={130} />
+              <p className="faint" style={{ textAlign: 'center', marginTop: 10 }}>
+                {analysis.loading ? 'Scoring the regime — fetching drivers, news and math…' : 'Assessment unavailable.'}
+              </p>
+            </div>
           )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
-            <button className={`btn ${tab === 'evidence' ? 'primary' : 'ghost'}`} style={{ fontSize: 12.5 }} onClick={() => setTab('evidence')}>Evidence</button>
-            <button className={`btn ${tab === 'thesis' ? 'primary' : 'ghost'}`} style={{ fontSize: 12.5 }} onClick={() => setTab('thesis')}>AI thesis</button>
-          </div>
         </div>
         <div>
-          {tab === 'evidence' ? (
-            a?.assessment ? <EvidencePanel assessment={a.assessment} /> : <div className="card muted">Loading evidence…</div>
-          ) : a?.thesis ? (
-            <ThesisCard thesis={a.thesis} onExplain={onExplain} />
+          {a?.assessment ? (
+            <EvidencePanel assessment={a.assessment} />
           ) : (
-            <div className="card muted">{analysis.loading ? 'Composing thesis…' : 'Thesis unavailable.'}</div>
+            <div className="card">
+              <div className="card-title">Why this verdict — the evidence</div>
+              <CardSkeleton height={200} />
+              <p className="faint" style={{ marginTop: 8 }}>
+                The factor table (every input, rule, weight and contribution) appears here the moment scoring completes.
+              </p>
+            </div>
           )}
         </div>
       </section>
 
+      {/* AI thesis — always visible, right under the evidence */}
+      <section className="section">
+        {a?.thesis ? (
+          <ThesisCard thesis={a.thesis} onExplain={onExplain} equation={a.assessment?.equation} />
+        ) : (
+          <div className="card">
+            <div className="card-title"><Sparkles size={15} /> Analyst thesis</div>
+            <CardSkeleton height={110} />
+            <p className="faint" style={{ marginTop: 8 }}>The AI translation of the math above — loading…</p>
+          </div>
+        )}
+      </section>
+
+      {/* Deterministic filters */}
       <section className="section">
         <h2 className="card-title" style={{ fontSize: 15 }}>Deterministic filters — computed before any AI</h2>
-        {a ? <FilterReadout filters={a.filters} cross={a.cross_asset} /> : <div className="card muted">Loading filters…</div>}
+        {a ? <FilterReadout filters={a.filters} cross={a.cross_asset} /> : <CardSkeleton height={160} />}
       </section>
 
       <section className="grid cols-2" style={{ alignItems: 'start' }}>
         <div className="card">
-          <div className="card-title">Related news {a?.news ? <span className={`chip ${a.news.aggregate_score > 0.1 ? 'pos' : a.news.aggregate_score < -0.1 ? 'neg' : 'neutral'}`}>tone {a.news.aggregate_score >= 0 ? '+' : ''}{a.news.aggregate_score.toFixed(2)} · {a.news.method}</span> : null}</div>
-          {a ? <NewsList articles={a.news.articles} /> : <p className="muted">Loading news…</p>}
+          <div className="card-title">
+            Related news
+            {a?.news ? (
+              <span className={`chip ${a.news.aggregate_score > 0.1 ? 'pos' : a.news.aggregate_score < -0.1 ? 'neg' : 'neutral'}`}>
+                tone {a.news.aggregate_score >= 0 ? '+' : ''}{a.news.aggregate_score.toFixed(2)} · {a.news.method === 'gemini' ? 'AI-tagged' : a.news.method}
+              </span>
+            ) : null}
+          </div>
+          {a ? <NewsList articles={a.news.articles} /> : <CardSkeleton height={180} />}
         </div>
         <ImageAnalyzer />
       </section>

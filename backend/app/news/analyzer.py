@@ -101,16 +101,23 @@ def parse_gemini_json(text: str, articles: list[dict[str, Any]]) -> dict[str, An
 
 
 async def analyze(articles: list[dict[str, Any]], gemini=None) -> dict[str, Any]:
-    """Gemini analysis with deterministic keyword fallback."""
+    """Gemini analysis with deterministic keyword fallback.
+
+    Thinking-style models spend part of max_tokens on reasoning, so we try
+    with a generous budget and escalate once if output still arrives
+    truncated (parse failure) — before falling back to keywords."""
     if not articles:
         return {"aggregate_score": 0.0, "method": "none", "articles": [],
                 "summary": "No headlines available."}
-    if gemini is not None:
-        try:
-            raw = await gemini.generate(build_gemini_prompt(articles))
-            parsed = parse_gemini_json(raw, articles)
-            if parsed:
-                return parsed
-        except Exception:
-            pass
+    if gemini is not None and getattr(gemini, "available", False):
+        for budget in (4096, 8192):
+            try:
+                raw = await gemini.generate(
+                    build_gemini_prompt(articles), ttl=600, temperature=0.2, max_tokens=budget
+                )
+                parsed = parse_gemini_json(raw, articles)
+                if parsed:
+                    return parsed
+            except Exception:
+                continue
     return keyword_analyze(articles)

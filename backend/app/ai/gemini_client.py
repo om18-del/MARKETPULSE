@@ -17,6 +17,17 @@ from ..core.config import get_settings
 
 log = logging.getLogger("marketpulse.ai")
 
+# Fallback ladder: each Gemini model has its OWN free-tier daily quota bucket.
+# When the primary model's daily quota is exhausted, we transparently try the
+# next model so AI features keep working instead of dropping to keyword mode.
+MODEL_LADDER = ["gemini-flash-lite-latest", "gemini-3.6-flash"]
+
+
+def _is_daily_quota_error(exc: Exception) -> bool:
+    """True when the error is a per-model DAILY quota exhaustion (not per-minute)."""
+    text = str(exc)
+    return "PerDayPerProjectPerModel" in text or "GenerateRequestsPerDay" in text
+
 
 class GeminiClient:
     def __init__(self) -> None:
@@ -25,6 +36,7 @@ class GeminiClient:
         self.available = bool(s.gemini_api_key)
         self._cache = TTLCache()
         self._model = None
+        self._model_dead: set[str] = set()  # models whose daily quota ran out
         if self.available:
             try:
                 from google import genai
@@ -36,8 +48,11 @@ class GeminiClient:
                 self.available = False
 
     async def generate(self, prompt: str, *, ttl: int = 300,
-                       temperature: float = 0.4, max_tokens: int = 1200) -> str:
-        """Cached, retried text generation. Raises RuntimeError if unavailable/exhausted."""
+                       temperature: float = 0.4, max_tokens: int = 3000) -> str:
+        """Cached, retried text generation. Raises RuntimeError if unavailable/exhausted.
+
+        Note: thinking-style models (gemini-3.x-flash) spend part of max_tokens on
+        internal reasoning, so budgets here are generous to avoid truncated output."""
         if not self.available:
             raise RuntimeError("gemini unavailable: no API key")
         cache_key = f"{self.model_name}:{temperature}:{hashlib_sha(prompt)}"
@@ -46,35 +61,56 @@ class GeminiClient:
             return cached
 
         last_exc: Exception | None = None
-        for attempt in range(3):
-            try:
-                def _call() -> str:
-                    resp = self._model.generate_content(
-                        model=self.model_name,
-                        contents=prompt,
-                        config={
-                            "temperature": temperature,
-                            "max_output_tokens": max_tokens,
-                        },
-                    )
-                    return (resp.text or "").strip()
+        candidates = [self.model_name] + [m for m in MODEL_LADDER if m != self.model_name]
+        for model in candidates:
+            if model in self._model_dead:
+                continue
+            for attempt in range(2):
+                try:
+                    def _call() -> str:
+                        resp = self._model.generate_content(
+                            model=model,
+                            contents=prompt,
+                            config={
+                                "temperature": temperature,
+                                "max_output_tokens": max_tokens,
+                            },
+                        )
+                        return (resp.text or "").strip()
 
-                text = await asyncio.to_thread(_call)
-                self._cache.set(cache_key, text, ttl)
-                return text
-            except Exception as exc:
-                last_exc = exc
-                wait = 1.5 * (attempt + 1)
-                log.warning("Gemini attempt %d failed: %s — retrying in %.1fs",
-                            attempt + 1, exc, wait)
-                await asyncio.sleep(wait)
+                    text = await asyncio.to_thread(_call)
+                    self._cache.set(cache_key, text, ttl)
+                    return text
+                except Exception as exc:
+                    last_exc = exc
+                    if _is_daily_quota_error(exc):
+                        self._model_dead.add(model)
+                        log.warning("Gemini model %s daily quota exhausted — switching models", model)
+                        break  # next model in the ladder
+                    wait = 1.2 * (attempt + 1)
+                    log.warning("Gemini %s attempt %d failed: %s — retrying in %.1fs",
+                                model, attempt + 1, exc, wait)
+                    await asyncio.sleep(wait)
         raise RuntimeError(f"gemini failed after retries: {last_exc}")
 
     async def generate_json(self, prompt: str, *, ttl: int = 300,
-                            temperature: float = 0.2, max_tokens: int = 900) -> dict:
-        """Generation that must yield a JSON object; raises if it can't."""
-        text = await self.generate(prompt, ttl=ttl, temperature=temperature, max_tokens=max_tokens)
+                            temperature: float = 0.2, max_tokens: int = 4096) -> dict:
+        """Generation that must yield a JSON object; retries with a larger budget
+        if the model's reasoning truncated the JSON."""
         import re
+
+        text = await self.generate(prompt, ttl=ttl, temperature=temperature, max_tokens=max_tokens)
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+        # Truncated (thinking ate the budget) or non-JSON: retry once, bigger.
+        text = await self.generate(
+            prompt + "\n\nIMPORTANT: output the complete JSON object only.",
+            ttl=0, temperature=temperature, max_tokens=max_tokens * 2,
+        )
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if not m:
             raise RuntimeError("gemini returned non-JSON")

@@ -15,7 +15,9 @@ import hashlib
 import io
 import re
 
-from .base import ProviderError, client
+import httpx
+
+from .base import ProviderError
 
 BASE_URL = "https://stooq.com/q/d/l/"
 
@@ -34,27 +36,41 @@ def _solve_pow(challenge: str, difficulty: int) -> int:
 class StooqProvider:
     name = "stooq"
 
+    def __init__(self) -> None:
+        # Persistent session: the bot-gate proof-of-work is paid ONCE per
+        # process (cookie jar keeps the verification), not once per request.
+        self._http: httpx.AsyncClient | None = None
+
+    def _get_http(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(
+                timeout=20.0,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MarketPulse/1.0"},
+                follow_redirects=True,
+            )
+        return self._http
+
     async def fetch_history(self, symbol: str) -> list[dict]:
         url = f"{BASE_URL}?s={symbol}&i=d"
+        http = self._get_http()
         try:
-            async with client() as http:
-                resp = await http.get(url)
-                text = resp.text.strip()
+            resp = await http.get(url)
+            text = resp.text.strip()
 
-                # Transparent browser-equivalent gate handling (JavaScript PoW)
-                if "__verify" in text and "<" in text[:200].lower():
-                    m_c = re.search(r'c="([^"]+)"', text)
-                    m_d = re.search(r",d=(\d+)", text)
-                    if m_c and m_d:
-                        n = _solve_pow(m_c.group(1), int(m_d.group(1)))
-                        v = await http.post(
-                            "https://stooq.com/__verify",
-                            content=f"c={m_c.group(1)}&n={n}",
-                            headers={"Content-Type": "application/x-www-form-urlencoded"},
-                        )
-                        if v.status_code == 200:
-                            resp = await http.get(url)
-                            text = resp.text.strip()
+            # Transparent browser-equivalent gate handling (JavaScript PoW)
+            if "__verify" in text and "<" in text[:200].lower():
+                m_c = re.search(r'c="([^"]+)"', text)
+                m_d = re.search(r",d=(\d+)", text)
+                if m_c and m_d:
+                    n = _solve_pow(m_c.group(1), int(m_d.group(1)))
+                    v = await http.post(
+                        "https://stooq.com/__verify",
+                        content=f"c={m_c.group(1)}&n={n}",
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    if v.status_code == 200:
+                        resp = await http.get(url)
+                        text = resp.text.strip()
         except Exception as exc:  # network layer
             raise ProviderError(f"stooq network error: {exc}") from exc
 

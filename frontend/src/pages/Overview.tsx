@@ -42,6 +42,24 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
 
   return (
     <div>
+      {/* New here? — three-step guide */}
+      <section className="section" style={{ marginTop: 22 }}>
+        <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, borderColor: 'color-mix(in srgb, var(--accent-a) 25%, var(--card-border))' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>1 · Read the pulse</div>
+            <div className="faint" style={{ fontSize: 12.5 }}>The gauge below blends 28 instruments into one Bullish / Bearish / Neutral / Uncertain read — computed by math, explained by AI.</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>2 · Search anything</div>
+            <div className="faint" style={{ fontSize: 12.5 }}>Press <kbd>Ctrl</kbd> <kbd>K</kbd> or use the search bar — every result opens the full overview: chart, verdict, evidence, AI thesis and news.</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>3 · Demand the why</div>
+            <div className="faint" style={{ fontSize: 12.5 }}>Every verdict shows its factor table, weights and score equation. Select any text → the Pulse Assistant explains it simply. Never advice — always evidence.</div>
+          </div>
+        </div>
+      </section>
+
       {/* Hero: the general market verdict */}
       <section className="section" style={{ marginTop: 22 }}>
         <div className="card" style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 340px) 1fr', gap: 26, alignItems: 'center', overflow: 'hidden', position: 'relative' }}>
