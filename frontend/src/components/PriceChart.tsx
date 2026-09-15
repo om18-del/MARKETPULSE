@@ -41,21 +41,21 @@ const TABS = [
 const INTRADAY_POLL_MS = 60_000 // live graph: fresh 5-minute bars every minute
 
 export function PriceChart({
-  initialBars,
   instrumentId,
   onLivePrice,
 }: {
-  initialBars: Bar[]
   instrumentId: string
-  onLivePrice?: (price: number, changePct: number) => void
+  onLivePrice?: (price: number) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  const [tf, setTf] = useState<'intraday' | 'daily' | 'monthly'>('daily')
-  const [bars, setBars] = useState<Bar[]>(initialBars)
+  // Live intraday is the default view — the graph moves in real time from
+  // the first paint; Daily/Monthly are one click away.
+  const [tf, setTf] = useState<'intraday' | 'daily' | 'monthly'>('intraday')
+  const [bars, setBars] = useState<Bar[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [note, setNote] = useState('daily closes · official exchange files')
+  const [note, setNote] = useState('loading live session…')
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const loadTf = useCallback(
@@ -77,10 +77,7 @@ export function PriceChart({
         setUpdatedAt(new Date())
         if (t === 'intraday' && onLivePrice && j.bars?.length >= 2) {
           const last = j.bars[j.bars.length - 1]
-          const prev = j.bars[j.bars.length - 2]
-          if (last?.close > 0 && prev?.close > 0) {
-            onLivePrice(last.close, ((last.close / prev.close - 1) * 100))
-          }
+          if (last?.close > 0) onLivePrice(last.close)
         }
       } catch {
         if (!silent) setErr('failed to load bars')
@@ -91,19 +88,18 @@ export function PriceChart({
     [instrumentId, onLivePrice],
   )
 
-  // New asset: reset to daily and adopt its bars without a refetch.
+  // New asset: back to the live intraday view and load it.
   useEffect(() => {
-    setTf('daily')
-    setBars(initialBars)
+    setTf('intraday')
+    setBars([])
     setErr(null)
-    setNote('daily closes · official exchange files')
+    setNote('loading live session…')
     setUpdatedAt(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instrumentId])
 
-  // Tab switch: daily bars are already in hand; fetch intraday/monthly.
+  // Tab switch (and first mount): fetch bars for the active timeframe.
   useEffect(() => {
-    if (tf !== 'daily') void loadTf(tf)
+    void loadTf(tf)
   }, [tf, loadTf])
 
   // LIVE graph: poll fresh intraday bars while the page stays open.
@@ -118,7 +114,7 @@ export function PriceChart({
   // Coming back to the tab: refresh immediately instead of waiting a minute.
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === 'visible' && tf !== 'daily') void loadTf(tf, true)
+      if (document.visibilityState === 'visible' && tf === 'intraday') void loadTf('intraday', true)
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)

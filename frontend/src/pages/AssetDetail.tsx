@@ -37,11 +37,10 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
   const detail = useApi<AssetDetail>(`/api/asset/${id}`)
   const analysis = useApi<Analysis>(`/api/analysis/${id}`)
   const watchlist = useWatchlist()
-  // Live price from the chart's intraday polling — keeps the header chip in
-  // sync with the live graph while the page stays open.
-  const [livePrice, setLivePrice] = useState<{ price: number; change_pct: number } | null>(null)
-  const onLivePrice = useCallback((price: number, changePct: number) => {
-    setLivePrice({ price, change_pct: changePct })
+  // Live price from the chart's intraday polling — the headline number.
+  const [livePrice, setLivePrice] = useState<number | null>(null)
+  const onLivePrice = useCallback((price: number) => {
+    setLivePrice(price)
   }, [])
   useEffect(() => {
     setLivePrice(null)
@@ -59,7 +58,6 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
 
   const d = detail.data
   const a = analysis.data
-  const up = (d.quote?.change_pct ?? 0) >= 0
 
   return (
     <div>
@@ -76,46 +74,52 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginTop: 10 }}>
         <h1 className="page-title" style={{ margin: 0 }}>{d.instrument.name}</h1>
         <span className="chip">{d.instrument.category} · {d.instrument.region}</span>
-        {d.quote ? (
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span className="num" style={{ fontSize: 30, fontWeight: 800 }}>
-              {d.quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-            <span className="num" style={{ fontSize: 16, fontWeight: 700, color: up ? 'var(--pos)' : 'var(--neg)' }}>
-              {up ? '▲' : '▼'} {Math.abs(d.quote.change_pct).toFixed(2)}%
-            </span>
-          </span>
-        ) : null}
+      </div>
+
+      {/* Live price in the headline slot — updates every minute with the graph.
+          Falls back to the official close until the first live bar arrives. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
         {(() => {
-          const lp = livePrice ?? (d.delayed_live ? { price: d.delayed_live.price, change_pct: d.delayed_live.change_pct } : null)
-          if (!lp) return null
-          const lup = lp.change_pct >= 0
+          const live = livePrice
+          const close = d.quote?.price
+          const shown = live ?? d.delayed_live?.price ?? close
+          const pct = live != null && close ? (live / close - 1) * 100
+            : (d.delayed_live?.change_pct ?? d.quote?.change_pct ?? null)
+          if (shown == null) return null
+          const pos = (pct ?? 0) >= 0
           return (
-            <span className="chip" title="From the exchange's 5-minute feed — refreshes every minute with the live graph">
-              <span className="live-dot" />
-              ≈ live ₹{lp.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              <span style={{ color: lup ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>
-                {lup ? '▲' : '▼'} {Math.abs(lp.change_pct).toFixed(2)}%
+            <>
+              <span className="num" style={{ fontSize: 34, fontWeight: 800 }}>
+                {shown.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </span>
-              <span className="muted" style={{ fontSize: 11 }}>· 15-min delayed</span>
-            </span>
+              {pct != null ? (
+                <span className="num" style={{ fontSize: 17, fontWeight: 700, color: pos ? 'var(--pos)' : 'var(--neg)' }}>
+                  {pos ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+                </span>
+              ) : null}
+              {live ? (
+                <span className="chip pos" title="From the exchange's 5-minute feed — refreshes every minute with the live graph">
+                  <span className="live-dot" /> live · 15-min delayed
+                </span>
+              ) : null}
+            </>
           )
         })()}
+        {d.quote ? (
+          <span className="muted" style={{ fontSize: 13 }}>
+            prev close {d.quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })} {d.instrument.currency}
+          </span>
+        ) : null}
       </div>
 
       {/* Chart loads immediately from the lightweight asset endpoint */}
       <section className="section">
         <div className="card">
           <ErrorBoundary name="PriceChart">
-            {d.rows.length ? (
-              <PriceChart
-                initialBars={d.rows.map((r) => ({ time: r.date, close: r.close }))}
-                instrumentId={d.instrument.id}
-                onLivePrice={onLivePrice}
-              />
-            ) : (
-              <p className="muted">No chart data.</p>
-            )}
+            <PriceChart
+              instrumentId={d.instrument.id}
+              onLivePrice={onLivePrice}
+            />
           </ErrorBoundary>
         </div>
       </section>
