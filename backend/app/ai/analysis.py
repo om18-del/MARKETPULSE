@@ -25,19 +25,27 @@ formatted values like "-3.13%" or "1.03×"; never derive or compute new figures.
 - Never mention a metric that is absent from the JSON (no VIX, breadth, or \
 macro numbers unless they are literally in the payload). If a section's data is \
 missing, write one short honest sentence saying so — never improvise.
-- Use the "what_would_change_this_read" list verbatim as the basis of the final \
-section; expand each item with its plain-English meaning, add nothing external.
+- Build the final section from the "what_would_change_this_read" list: restate each \
+list item and add its plain-English meaning. Do not omit an item, do not add \
+external conditions.
 - Use the "cross_asset" drivers (correlations) for the Cross-Asset Drivers section; \
 if the list is empty, say the asset has no significant macro-driver relationships \
 right now and move on.
+- CORRELATION IS NOT CAUSATION: describe drivers as relationships ("moves inversely \
+to", "tends to move with") — never imply cause (no "because of", "due to", "driven by" \
+for a correlation).
+- Interpret confidence honestly using "confidence_interpretation" from the JSON: \
+a number near 50 is near even odds, not a strong signal. Never let the wording \
+sound more certain than that interpretation.
 - Never give investment advice, recommendations, or price predictions. Describe \
 the current environment, never the future.
 
 QUALITY RULES:
 - FORMAT IS STRICT: your response MUST begin with the exact label \
 "Structural Read:" — no preamble, no introduction, no summary sentence before it. \
-The verdict sentence (verdict + confidence + the regime_equation in plain words) \
-is the FIRST sentence INSIDE the Structural Read section, not before it.
+The verdict sentence (verdict + confidence + confidence_interpretation + the \
+regime_equation_plain, all in plain words) is the FIRST sentence INSIDE the \
+Structural Read section, not before it.
 - Then exactly three more labeled sections, in this order: "Cross-Asset Drivers", \
 "Risk Conditions", "What Would Change This Read". Nothing comes before the first \
 label and nothing after the final disclaimer line.
@@ -46,13 +54,17 @@ label and nothing after the final disclaimer line.
 reader should learn from each number, not just its label.
 - Resolve apparent tensions explicitly (e.g. RSI oversold inside a downtrend = \
 falling but stretched; volume above average means real participation).
+- Write the regime equation ONLY from "regime_equation_plain" — never reproduce \
+the raw formula in "regime_equation" (no "×0.35" chains; those are for the \
+evidence panel, not prose).
 - Sentence case, no markdown headings, no bullet points — plain sentences with \
 the four labels. Maximum ~220 words.
 - End with the exact line: "Educational information — not investment advice."
 
 FOLLOW THIS SKELETON EXACTLY (fill the brackets, keep the labels):
-"Structural Read: [verdict] environment with [confidence]% confidence — [the \
-regime_equation in plain words]. [2-3 numbers with their meanings]."
+"Structural Read: [verdict] environment with [confidence]% confidence — \
+[confidence_interpretation] — [regime_equation_plain]. [2-3 numbers with their \
+meanings]."
 "Cross-Asset Drivers: [driver correlations and what they mean, or the honest \
 one-liner if empty]."
 "Risk Conditions: [volatility, volume-flow, vwap numbers with meanings]."
@@ -72,7 +84,9 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
         "instrument": features.get("instrument_name", ""),
         "verdict": features.get("verdict"),
         "confidence": features.get("confidence"),
+        "confidence_interpretation": features.get("confidence_note"),
         "regime_equation": features.get("equation"),
+        "regime_equation_plain": features.get("equation_plain"),
         "factors": features.get("factors"),
         "cross_asset_drivers": (features.get("cross_asset") or {}).get("drivers") or {},
         "cross_asset_summary": (features.get("cross_asset") or {}).get("summary", ""),
@@ -81,6 +95,8 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
         "what_would_change_this_read": features.get("what_would_change_this_read") or [],
         "key_news": features.get("news_headlines", [])[:3],
     }
+    # Post-generation check aid: the exact items the final section must restate.
+    wwctr = payload["what_would_change_this_read"]
     # Drop None entries so the model never sees an ambiguous key.
     payload = {k: v for k, v in payload.items() if v is not None}
     prompt = (
@@ -105,6 +121,14 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
                     "generated_by": "deterministic-template (format guard)"}
         text = _enforce_word_cap(enforced)
         bad = _grounding_violations(text, payload)
+        if not bad and wwctr:
+            # The final section must restate every "what would change" item
+            # (audit rec: verbatim match so the read can't drift from the JSON).
+            missing = _wwctr_missing_items(text, wwctr)
+            if missing:
+                return {"text": fallback,
+                        "generated_by": "deterministic-template (change-read guard)",
+                        "missing_change_items": missing}
         if bad:
             # The model quoted numbers that exist nowhere in the payload —
             # serve the deterministic template, which is grounded by design.
@@ -146,6 +170,25 @@ def _collect_allowed_numbers(x: Any, allowed: set[str]) -> None:
             for nd in (0, 1, 2):
                 allowed.add(f"{f:.{nd}f}")
                 allowed.add(f"{abs(f):.{nd}f}")
+
+
+def _wwctr_missing_items(text: str, items: list[str]) -> list[str]:
+    """"What Would Change This Read" items the output failed to restate.
+
+    Match on content words (≥4 chars, not stopwords) so "a close on the other
+    side of the 50-day average" matches even if the model adjusts articles
+    or capitalization.
+    """
+    stop = {"a", "an", "the", "of", "on", "the", "other", "side", "with", "for",
+            "and", "or", "to", "in", "this", "that", "pushes", "toward", "its"}
+    low = text.lower()
+    missing: list[str] = []
+    for item in items:
+        words = [w for w in re.findall(r"[a-z0-9]+", item.lower())
+                 if len(w) >= 4 and w not in stop]
+        if not words or not all(w in low for w in words):
+            missing.append(item)
+    return missing
 
 
 def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
@@ -238,7 +281,9 @@ def _fallback_thesis(f: dict[str, Any]) -> str:
     parts = []
     parts.append(
         f"Structural Read: MarketPulse's math layer scores this environment {verdict} "
-        f"with {conf}% confidence. {f.get('equation', '')}"
+        f"with {conf}% confidence"
+        + (f" — {f.get('confidence_note')}." if f.get("confidence_note") else ". ")
+        + f"{f.get('equation_plain') or f.get('equation', '')}"
     )
     parts.append(
         f"Cross-Asset Drivers: "

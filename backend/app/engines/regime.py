@@ -200,6 +200,18 @@ def assess(rows: list[Row],
     if uncertainty_damp:
         equation += f" (vol dampens directional confidence ×{1 - uncertainty_damp:.2f})"
 
+    # Plain-English version of the same math — for beginners and AI output.
+    # (Audit feedback: raw formula syntax risks misinterpretation by
+    # non-technical users in a regulated education context.)
+    equation_plain = (
+        f"each factor score is multiplied by its weight and the results are added: "
+        f"trend {trend['score']:+.2f} × {W_TREND:.0%}, momentum {momentum['score']:+.2f} × {W_MOM:.0%}, "
+        f"volatility {volatility['score']:+.2f} × {W_VOLA:.0%}, volume {volume['score']:+.2f} × {W_VOL:.0%}, "
+        f"plus news {news['score']:+.2f} — giving {raw:+.2f}, which maps to {score100}/100 on the 0–100 score"
+    )
+    if uncertainty_damp:
+        equation_plain += f" (high volatility dampens the directional confidence)"
+
     what_would_change: list[str] = []
     if verdict in ("bullish", "bearish"):
         what_would_change = [
@@ -214,13 +226,24 @@ def assess(rows: list[Row],
             "Sustained 5-day moves exceeding ±6%",
         ]
 
+    # Confidence interpretation — prevents readers from over-weighting a
+    # verdict (audit recommendation: 53.7% is near 50-50 odds, not conviction).
+    if confidence >= 70:
+        confidence_note = "a strong lean — most signals agree"
+    elif confidence >= 55:
+        confidence_note = "a moderate lean — signals mostly agree"
+    else:
+        confidence_note = "near even odds — a mild lean, not a strong signal"
+
     return {
         "available": True,
         "instrument_name": instrument_name,
         "verdict": verdict,
         "score_0_100": score100,
         "confidence": confidence,
+        "confidence_note": confidence_note,
         "equation": equation,
+        "equation_plain": equation_plain,
         "factors": {
             "trend": trend, "momentum": momentum,
             "volatility": volatility, "volume": volume, "news": news,

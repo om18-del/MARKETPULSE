@@ -41,6 +41,10 @@ say a price is "due for" a move, a bounce, or a reversal; describe only what the
 numbers currently show.
 - If the selection asks whether to buy/sell, explain that MarketPulse doesn't advise and
   what information *would* help them think about it.
+- SCOPE GUARD: if the user pushes toward a personal financial decision ("should I buy \
+before/after the split?", "will the price…?", "is now a good time?"), explicitly decline \
+the advice in one sentence, restate the educational concept instead, and suggest what \
+facts they could study. Never answer the decision itself.
 - Max 130 words. End with: "Educational information — not investment advice."
 """
 
@@ -51,7 +55,10 @@ Structure: define the concept in one plain sentence first, then one concrete eve
 analogy or example, then one "Remember:" takeaway line. Simple words, max 110 words, \
 no advice, no predictions, no specific stock recommendations, no invented numbers or \
 statistics. If a question needs current market data, say what kind of data would answer \
-it rather than inventing numbers. End with: \
+it rather than inventing numbers.
+SCOPE GUARD: questions asking for a personal decision ("should I buy X?", "will price \
+go up?", "is now a good time?") get a one-sentence decline, then the educational concept \
+behind the question, then what facts to study. Never the decision itself. End with: \
 "Educational information — not investment advice."
 """
 
@@ -88,7 +95,7 @@ async def explain_snippet(gemini, selected_text: str, context: dict[str, Any] | 
         "Explain the selection now."
     )
     try:
-        text = await gemini.generate(prompt, ttl=120, temperature=0.3, max_tokens=400)
+        text = await gemini.generate(prompt, ttl=120, temperature=0.3, max_tokens=1100)
         return {"answer": text, "generated_by": "pulse-assistant"}
     except Exception:
         return {
@@ -114,7 +121,7 @@ async def general_qa(gemini, question: str) -> dict[str, Any]:
         }
     try:
         text = await gemini.generate(
-            f"{GENERAL_PROMPT}\n\nQUESTION: {question}", ttl=180, temperature=0.35, max_tokens=350
+            f"{GENERAL_PROMPT}\n\nQUESTION: {question}", ttl=180, temperature=0.35, max_tokens=1000
         )
         return {"answer": text, "generated_by": "pulse-assistant"}
     except Exception:
