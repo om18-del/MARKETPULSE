@@ -34,10 +34,13 @@ right now and move on.
 the current environment, never the future.
 
 QUALITY RULES:
-- Structure every thesis exactly as four labeled sentences: "Structural Read", \
-"Cross-Asset Drivers", "Risk Conditions", "What Would Change This Read".
-- Begin the thesis with the verdict sentence: verdict, confidence, and the \
-regime_equation in plain words.
+- FORMAT IS STRICT: your response MUST begin with the exact label \
+"Structural Read:" — no preamble, no introduction, no summary sentence before it. \
+The verdict sentence (verdict + confidence + the regime_equation in plain words) \
+is the FIRST sentence INSIDE the Structural Read section, not before it.
+- Then exactly three more labeled sections, in this order: "Cross-Asset Drivers", \
+"Risk Conditions", "What Would Change This Read". Nothing comes before the first \
+label and nothing after the final disclaimer line.
 - Each section: cite 2-3 concrete values WITH their meaning in plain English \
 (e.g. "RSI 39.8 — tilting bearish but far from oversold"). Explain what the \
 reader should learn from each number, not just its label.
@@ -45,7 +48,16 @@ reader should learn from each number, not just its label.
 falling but stretched; volume above average means real participation).
 - Sentence case, no markdown headings, no bullet points — plain sentences with \
 the four labels. Maximum ~220 words.
-- End with the exact line: "Educational information — not investment advice."""
+- End with the exact line: "Educational information — not investment advice."
+
+FOLLOW THIS SKELETON EXACTLY (fill the brackets, keep the labels):
+"Structural Read: [verdict] environment with [confidence]% confidence — [the \
+regime_equation in plain words]. [2-3 numbers with their meanings]."
+"Cross-Asset Drivers: [driver correlations and what they mean, or the honest \
+one-liner if empty]."
+"Risk Conditions: [volatility, volume-flow, vwap numbers with meanings]."
+"What Would Change This Read: [expand the what_would_change_this_read items]."
+"Educational information — not investment advice."""
 
 
 def _features_text(features: dict[str, Any]) -> str:
@@ -82,6 +94,13 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
         text = await gemini.generate(prompt, ttl=300, temperature=0.3, max_tokens=700)
         if _mentions_forbidden(text):
             text = fallback + "\n\n(Redacted and replaced: the model attempted advice.)"
+        # Format enforcement: the thesis must START at "Structural Read:" —
+        # any preamble the model adds is stripped; no label at all = unusable.
+        enforced = _enforce_thesis_format(text)
+        if enforced is None:
+            return {"text": fallback,
+                    "generated_by": "deterministic-template (format guard)"}
+        text = enforced
         bad = _grounding_violations(text, payload)
         if bad:
             # The model quoted numbers that exist nowhere in the payload —
@@ -146,6 +165,24 @@ def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
         except ValueError:
             continue
     return bad
+
+
+def _enforce_thesis_format(text: str) -> str | None:
+    """Guarantee the response begins at 'Structural Read:'.
+
+    LLMs occasionally add a summary sentence before the first label even when
+    forbidden; downstream evaluators parse the four-label format strictly, so
+    a preamble would zero the score. Strip anything before the first label;
+    if the label never appears, the output is unusable (caller falls back).
+    """
+    m = re.search(r"Structural\s+Read\s*:", text)
+    if not m:
+        return None
+    out = text[m.start():].lstrip()
+    # collapse an accidental doubled label ("Structural Read: Structural Read:")
+    out = re.sub(r"^(Structural\s+Read\s*:\s*)Structural\s+Read\s*:\s*",
+                 r"\1", out, count=1, flags=re.IGNORECASE)
+    return out
 
 
 def _mentions_forbidden(text: str) -> bool:
