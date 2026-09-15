@@ -1,6 +1,14 @@
-"""Alpha Vantage — key-based last-resort fallback (TIME_SERIES_DAILY)."""
+"""Alpha Vantage — key-based last-resort fallback with MULTI-KEY ROTATION.
+
+Free tier: 25 requests/day PER KEY. ALPHAVANTAGE_API_KEY accepts
+comma-separated keys; each call picks the next live key, and a key that hits
+its daily cap (AV answers with a "Note"/"Information" body) is parked until
+the process restarts — calls rotate to the remaining keys instead of failing.
+"""
 
 from __future__ import annotations
+
+import itertools
 
 from ...core.config import get_settings
 from .base import ProviderError, client
@@ -12,32 +20,55 @@ class AlphaVantageProvider:
     name = "alphavantage"
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or get_settings().alphavantage_api_key
+        raw = api_key or get_settings().alphavantage_api_key
+        self._keys = [k.strip() for k in (raw or "").split(",") if k.strip()]
+        self._cycle = itertools.cycle(range(len(self._keys))) if self._keys else None
+        self._dead: set[str] = set()  # keys that hit their daily cap
+
+    @property
+    def api_key(self) -> str | None:
+        """Next live key (round-robin), or None when exhausted/unconfigured."""
+        live = [k for k in self._keys if k not in self._dead]
+        if not live:
+            return None
+        return live[next(self._cycle) % len(live)] if self._cycle else live[0]
 
     @property
     def available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self._keys)
+
+    def _park(self, key: str | None) -> None:
+        if key and len(self._keys) > 1:
+            self._dead.add(key)
+
+    async def _fetch(self, function: str, symbol: str) -> dict:
+        if not self._keys:
+            raise ProviderError("alphavantage: no api key configured")
+        tried: set[str] = set()
+        last_body: dict = {}
+        for _ in range(len(self._keys)):
+            key = self.api_key
+            if not key or key in tried:
+                break
+            tried.add(key)
+            params = {"function": function, "symbol": symbol, "apikey": key}
+            try:
+                async with client() as http:
+                    resp = await http.get(BASE_URL, params=params)
+            except Exception as exc:
+                raise ProviderError(f"alphavantage network error: {exc}") from exc
+            if resp.status_code != 200:
+                raise ProviderError(f"alphavantage HTTP {resp.status_code}")
+            data = resp.json()
+            if "Note" in data or "Information" in data:
+                last_body = data
+                self._park(key)  # this key's daily cap — rotate to the next
+                continue
+            return data
+        raise ProviderError(f"alphavantage: all keys rate-limited ({len(tried)} tried)")
 
     async def fetch_history(self, symbol: str) -> list[dict]:
-        if not self.api_key:
-            raise ProviderError("alphavantage: no api key configured")
-        params = {
-            "function": "TIME_SERIES_DAILY",
-            "symbol": symbol,
-            "outputsize": "compact",
-            "apikey": self.api_key,
-        }
-        try:
-            async with client() as http:
-                resp = await http.get(BASE_URL, params=params)
-        except Exception as exc:
-            raise ProviderError(f"alphavantage network error: {exc}") from exc
-
-        if resp.status_code != 200:
-            raise ProviderError(f"alphavantage HTTP {resp.status_code}")
-        data = resp.json()
-        if "Note" in data or "Information" in data:
-            raise ProviderError("alphavantage: rate limit reached")
+        data = await self._fetch("TIME_SERIES_DAILY", symbol)
         series = data.get("Time Series (Daily)")
         if not series:
             raise ProviderError("alphavantage: unexpected payload")
@@ -57,23 +88,7 @@ class AlphaVantageProvider:
         """TIME_SERIES_MONTHLY — secondary source for the monthly timeframe
         (verified for BSE .BSE and US symbols on the free tier). Rows are
         newest-first from AV; caller sorts."""
-        if not self.api_key:
-            raise ProviderError("alphavantage: no api key configured")
-        params = {
-            "function": "TIME_SERIES_MONTHLY",
-            "symbol": symbol,
-            "apikey": self.api_key,
-        }
-        try:
-            async with client() as http:
-                resp = await http.get(BASE_URL, params=params)
-        except Exception as exc:
-            raise ProviderError(f"alphavantage network error: {exc}") from exc
-        if resp.status_code != 200:
-            raise ProviderError(f"alphavantage HTTP {resp.status_code}")
-        data = resp.json()
-        if "Note" in data or "Information" in data:
-            raise ProviderError("alphavantage: rate limit reached")
+        data = await self._fetch("TIME_SERIES_MONTHLY", symbol)
         series = data.get("Monthly Time Series")
         if not series:
             raise ProviderError("alphavantage: unexpected monthly payload")

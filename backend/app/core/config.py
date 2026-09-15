@@ -12,10 +12,12 @@ class Settings(BaseSettings):
     version: str = "1.0.0"
 
     # --- AI ---
+    # Comma-separated keys multiply the free daily quota (rotation built in).
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
 
     # --- Providers ---
+    # Comma-separated keys rotate automatically (each free key = own quota).
     twelvedata_api_key: str = ""
     finnhub_api_key: str = ""
     alphavantage_api_key: str = ""

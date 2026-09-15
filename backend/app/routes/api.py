@@ -59,6 +59,7 @@ async def health() -> dict:
         "version": "1.0.0",
         "data_mode": "demo" if service.DEMO_STATE["forced"] else "auto",
         "ai_available": gemini.available,
+        "ai": gemini.health(),  # key-rotation state (keys alive/exhausted)
         "providers": agg.health()["providers"],
         "disclaimer": service.DISCLAIMER,
     }
