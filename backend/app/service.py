@@ -628,7 +628,9 @@ async def chart_bars(instrument_id: str, tf: str = "daily") -> dict[str, Any]:
     tf = tf if tf in ("intraday", "daily", "monthly") else "daily"
     cache_key = f"chart:{inst.id}:{tf}"
     hit = _CHART_BARS_CACHE.get(cache_key)
-    ttl = 120.0 if tf == "intraday" else 3600.0
+    # Intraday TTL matches the frontend's 60s live-poll so every poll sees
+    # genuinely fresh bars; daily/monthly barely move and cache for an hour.
+    ttl = 60.0 if tf == "intraday" else 3600.0
     if hit and time.monotonic() - hit[0] < ttl:
         return hit[1]
 

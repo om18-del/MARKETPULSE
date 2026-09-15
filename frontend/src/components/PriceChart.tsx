@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, AreaSeries, type IChartApi, type UTCTimestamp, type Time } from 'lightweight-charts'
 
 type Bar = { time: string; close: number }
@@ -38,7 +38,17 @@ const TABS = [
   { key: 'monthly', label: 'Monthly' },
 ] as const
 
-export function PriceChart({ initialBars, instrumentId }: { initialBars: Bar[]; instrumentId: string }) {
+const INTRADAY_POLL_MS = 60_000 // live graph: fresh 5-minute bars every minute
+
+export function PriceChart({
+  initialBars,
+  instrumentId,
+  onLivePrice,
+}: {
+  initialBars: Bar[]
+  instrumentId: string
+  onLivePrice?: (price: number, changePct: number) => void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const [tf, setTf] = useState<'intraday' | 'daily' | 'monthly'>('daily')
@@ -46,42 +56,73 @@ export function PriceChart({ initialBars, instrumentId }: { initialBars: Bar[]; 
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [note, setNote] = useState('daily closes · official exchange files')
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
+  const loadTf = useCallback(
+    async (t: 'intraday' | 'daily' | 'monthly', silent = false) => {
+      if (!silent) setLoading(true)
+      try {
+        const r = await fetch(`/api/chart/${encodeURIComponent(instrumentId)}?tf=${t}`)
+        const j = await r.json()
+        if (!r.ok || !j.available) {
+          if (!silent) {
+            setErr(j.reason ?? `unavailable (${r.status})`)
+            setBars([])
+          }
+          return
+        }
+        setErr(null)
+        setBars(j.bars)
+        setNote(j.interval_note ?? '')
+        setUpdatedAt(new Date())
+        if (t === 'intraday' && onLivePrice && j.bars?.length >= 2) {
+          const last = j.bars[j.bars.length - 1]
+          const prev = j.bars[j.bars.length - 2]
+          if (last?.close > 0 && prev?.close > 0) {
+            onLivePrice(last.close, ((last.close / prev.close - 1) * 100))
+          }
+        }
+      } catch {
+        if (!silent) setErr('failed to load bars')
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [instrumentId, onLivePrice],
+  )
+
+  // New asset: reset to daily and adopt its bars without a refetch.
   useEffect(() => {
-    // New asset: reset to daily and adopt its bars without a refetch.
     setTf('daily')
     setBars(initialBars)
     setErr(null)
     setNote('daily closes · official exchange files')
-  }, [instrumentId, initialBars])
+    setUpdatedAt(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instrumentId])
 
+  // Tab switch: daily bars are already in hand; fetch intraday/monthly.
   useEffect(() => {
-    if (tf === 'daily') return // daily bars already in hand from /api/asset
-    let cancelled = false
-    setLoading(true)
-    setErr(null)
-    fetch(`/api/chart/${encodeURIComponent(instrumentId)}?tf=${tf}`)
-      .then(async (r) => {
-        const j = await r.json()
-        if (cancelled) return
-        if (!r.ok || !j.available) {
-          setErr(j.reason ?? `unavailable (${r.status})`)
-          setBars([])
-          return
-        }
-        setBars(j.bars)
-        setNote(j.interval_note ?? '')
-      })
-      .catch((e) => {
-        if (!cancelled) setErr(e?.message ?? 'failed to load bars')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    if (tf !== 'daily') void loadTf(tf)
+  }, [tf, loadTf])
+
+  // LIVE graph: poll fresh intraday bars while the page stays open.
+  useEffect(() => {
+    if (tf !== 'intraday') return
+    const iv = setInterval(() => {
+      if (document.visibilityState === 'visible') void loadTf('intraday', true)
+    }, INTRADAY_POLL_MS)
+    return () => clearInterval(iv)
+  }, [tf, loadTf])
+
+  // Coming back to the tab: refresh immediately instead of waiting a minute.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && tf !== 'daily') void loadTf(tf, true)
     }
-  }, [tf, instrumentId])
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [tf, loadTf])
 
   const points = useMemo(() => toPoints(bars), [bars])
 
@@ -133,6 +174,8 @@ export function PriceChart({ initialBars, instrumentId }: { initialBars: Bar[]; 
     }
   }, [points, tf])
 
+  const live = tf === 'intraday'
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -149,9 +192,23 @@ export function PriceChart({ initialBars, instrumentId }: { initialBars: Bar[]; 
             </button>
           ))}
         </div>
+        {live ? (
+          <span className="chip pos" title="Graph refreshes automatically every minute while this page is open">
+            <span className="live-dot" /> LIVE · auto-updates
+          </span>
+        ) : null}
         <span className="faint" style={{ fontSize: 11.5 }}>
           {loading ? 'loading…' : note}
+          {updatedAt ? ` · updated ${updatedAt.toLocaleTimeString()}` : ''}
         </span>
+        <button
+          className="btn ghost"
+          style={{ padding: '2px 10px', fontSize: 12 }}
+          onClick={() => void loadTf(tf)}
+          aria-label="Refresh chart now"
+        >
+          ↻
+        </button>
       </div>
       {err ? (
         <p className="muted">This timeframe isn't available for this asset ({err}). Daily is always available above.</p>

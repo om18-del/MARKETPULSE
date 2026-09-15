@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { GitCompare, ArrowLeft, Sparkles, Sigma, Clock } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
@@ -36,6 +37,15 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
   const detail = useApi<AssetDetail>(`/api/asset/${id}`)
   const analysis = useApi<Analysis>(`/api/analysis/${id}`)
   const watchlist = useWatchlist()
+  // Live price from the chart's intraday polling — keeps the header chip in
+  // sync with the live graph while the page stays open.
+  const [livePrice, setLivePrice] = useState<{ price: number; change_pct: number } | null>(null)
+  const onLivePrice = useCallback((price: number, changePct: number) => {
+    setLivePrice({ price, change_pct: changePct })
+  }, [])
+  useEffect(() => {
+    setLivePrice(null)
+  }, [id])
 
   if (detail.error) {
     return (
@@ -76,20 +86,21 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
             </span>
           </span>
         ) : null}
-        {d.delayed_live ? (
-          <span
-            className="chip"
-            title={d.delayed_live.note}
-            style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}
-          >
-            <span className="live-dot" />
-            ≈ live ₹{d.delayed_live.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            <span style={{ color: d.delayed_live.change_pct >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>
-              {d.delayed_live.change_pct >= 0 ? '▲' : '▼'} {Math.abs(d.delayed_live.change_pct).toFixed(2)}%
+        {(() => {
+          const lp = livePrice ?? (d.delayed_live ? { price: d.delayed_live.price, change_pct: d.delayed_live.change_pct } : null)
+          if (!lp) return null
+          const lup = lp.change_pct >= 0
+          return (
+            <span className="chip" title="From the exchange's 5-minute feed — refreshes every minute with the live graph">
+              <span className="live-dot" />
+              ≈ live ₹{lp.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              <span style={{ color: lup ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>
+                {lup ? '▲' : '▼'} {Math.abs(lp.change_pct).toFixed(2)}%
+              </span>
+              <span className="muted" style={{ fontSize: 11 }}>· 15-min delayed</span>
             </span>
-            <span className="muted" style={{ fontSize: 11 }}>· 15-min delayed</span>
-          </span>
-        ) : null}
+          )
+        })()}
       </div>
 
       {/* Chart loads immediately from the lightweight asset endpoint */}
@@ -100,6 +111,7 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
               <PriceChart
                 initialBars={d.rows.map((r) => ({ time: r.date, close: r.close }))}
                 instrumentId={d.instrument.id}
+                onLivePrice={onLivePrice}
               />
             ) : (
               <p className="muted">No chart data.</p>
