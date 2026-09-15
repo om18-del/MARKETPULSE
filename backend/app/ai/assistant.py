@@ -9,7 +9,17 @@ Analysis role (different prompts, different routes).
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
+
+from .analysis import _mentions_forbidden, grounded_generate
+
+PA_REFUSAL = (
+    "I'd rather not answer this without verified information — MarketPulse never "
+    "shows numbers it can't trace. Try the Dictionary for term explanations, or "
+    "the Overview page for the live market math. "
+    "Educational information — not investment advice.")
 
 FAQ: list[dict[str, str]] = [
     {"q": "what is a stock", "a": "A stock is a small ownership slice of a company. If a company has 1,000 shares and you own 1, you own 0.1% of it — and its future success (or struggle) is reflected in that share's price. Educational information — not investment advice."},
@@ -95,8 +105,13 @@ async def explain_snippet(gemini, selected_text: str, context: dict[str, Any] | 
         "Explain the selection now."
     )
     try:
-        text = await gemini.generate(prompt, ttl=120, temperature=0.3, max_tokens=1100)
-        return {"answer": text, "generated_by": "pulse-assistant"}
+        # Grounding source = the selection + page context: PA may reuse those
+        # figures but must not introduce any number of its own.
+        payload = {"selection": selected_text[:1200], **ctx}
+        text, gen_by, _bad = await grounded_generate(
+            gemini, prompt, payload, ttl=120, temperature=0.3, max_tokens=1100,
+            fallback_text=PA_REFUSAL, forbid_advice=False)
+        return {"answer": text, "generated_by": gen_by}
     except Exception:
         return {
             "answer": ("The Assistant is temporarily unavailable (free-tier quota). "
@@ -120,10 +135,13 @@ async def general_qa(gemini, question: str) -> dict[str, Any]:
             "generated_by": "unavailable",
         }
     try:
-        text = await gemini.generate(
-            f"{GENERAL_PROMPT}\n\nQUESTION: {question}", ttl=180, temperature=0.35, max_tokens=1000
-        )
-        return {"answer": text, "generated_by": "pulse-assistant"}
+        payload = {"scope": "educational concept explanation, no market data",
+                   "question": question}
+        text, gen_by, _bad = await grounded_generate(
+            gemini, f"{GENERAL_PROMPT}\n\nQUESTION: {question}", payload,
+            ttl=180, temperature=0.35, max_tokens=1000,
+            fallback_text=faq or PA_REFUSAL)
+        return {"answer": text, "generated_by": gen_by}
     except Exception:
         if faq:
             return {"answer": faq, "generated_by": "faq-knowledge-base"}

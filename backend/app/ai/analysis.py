@@ -191,6 +191,42 @@ def _wwctr_missing_items(text: str, items: list[str]) -> list[str]:
     return missing
 
 
+def check_grounding(text: str, payload: dict[str, Any]) -> list[str]:
+    """Public wrapper: numbers in `text` that exist nowhere in `payload`."""
+    return _grounding_violations(text, payload)
+
+
+async def grounded_generate(
+    gemini, prompt: str, payload: dict[str, Any], *, ttl: int,
+    temperature: float, max_tokens: int, fallback_text: str,
+    forbid_advice: bool = True,
+) -> tuple[str, str, list[str]]:
+    """Generate → verify every number against the payload → retry once with a
+    violation warning → serve the deterministic fallback if still ungrounded.
+
+    This is the hallucination guarantee for ALL numeric AI surfaces (chat,
+    recap, FX, PA explain): the model physically cannot emit an untraceable
+    number to the user — any violation swaps in grounded-by-construction text.
+    Returns (text, generated_by, violations).
+    """
+    extra = ""
+    bad: list[str] = []
+    for attempt in range(2):
+        text = await gemini.generate(prompt + extra, ttl=ttl,
+                                     temperature=temperature, max_tokens=max_tokens)
+        if forbid_advice and _mentions_forbidden(text):
+            return fallback_text, "deterministic-template (advice guard)", ["advice"]
+        bad = _grounding_violations(text, payload)
+        if not bad:
+            return text, "gemini-analysis", []
+        extra = (
+            "\n\nIMPORTANT: your previous draft cited figures that DO NOT exist in the "
+            f"JSON ({', '.join(bad[:5])}). That is a grounding violation. Rewrite using "
+            "ONLY numbers literally present in the JSON — or say the data is not available."
+        )
+    return fallback_text, "deterministic-template (grounding guard)", bad
+
+
 def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
     """Numbers in the output that exist nowhere in the payload.
 
@@ -204,6 +240,9 @@ def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
     bad: list[str] = []
     for q in quoted:
         if q in allowed or q.lstrip("-") in allowed:
+            continue
+        # Years (19xx/20xx) are prose calendar references, not market data.
+        if "." not in q and re.fullmatch(r"(19|20)\d{2}", q.lstrip("-")):
             continue
         try:
             if abs(float(q)) >= 100 or "." in q:
@@ -320,27 +359,33 @@ End with: "Educational information — not investment advice."
 
 async def chat_answer(gemini, question: str, context: dict[str, Any]) -> dict[str, Any]:
     """Data-grounded Q&A about current market state."""
+    unavailable = {
+        "answer": ("AI chat needs a Gemini API key on the backend. Everything else in "
+                   "MarketPulse — data, math engine, evidence panels — still works. "
+                   "Educational information — not investment advice."),
+        "generated_by": "unavailable",
+    }
     if gemini is None or not getattr(gemini, "available", False):
-        return {
-            "answer": ("AI chat needs a Gemini API key on the backend. Everything else in "
-                       "MarketPulse — data, math engine, evidence panels — still works. "
-                       "Educational information — not investment advice."),
-            "generated_by": "unavailable",
-        }
+        return unavailable
+    payload = {"market_context": context, "question": question}
     prompt = (
         f"{ANALYSIS_CHAT_PROMPT}\n\nMARKET CONTEXT JSON:\n{_features_text(context)}\n\n"
         f"USER QUESTION: {question}"
     )
+    fallback = {
+        "answer": ("I can't verify an answer against the live market data right now, and "
+                   "MarketPulse never shows unverified numbers. The Overview page has the "
+                   "full math behind every verdict. "
+                   "Educational information — not investment advice."),
+        "generated_by": "deterministic-fallback",
+    }
     try:
-        text = await gemini.generate(prompt, ttl=120, temperature=0.4, max_tokens=1200)
-        return {"answer": text, "generated_by": "gemini-analysis"}
+        text, gen_by, _bad = await grounded_generate(
+            gemini, prompt, payload, ttl=120, temperature=0.4, max_tokens=1200,
+            fallback_text=fallback["answer"])
+        return {"answer": text, "generated_by": gen_by}
     except Exception:
-        return {
-            "answer": ("The AI service is temporarily unavailable (likely free-tier quota). "
-                       "The deterministic analysis and evidence panels remain fully available. "
-                       "Educational information — not investment advice."),
-            "generated_by": "fallback",
-        }
+        return fallback
 
 
 RECAP_PROMPT = """You are the Analysis Engine of MarketPulse writing the "60-second market recap".
@@ -360,8 +405,10 @@ async def daily_recap(gemini, data: dict[str, Any]) -> dict[str, Any]:
         return {"text": _fallback_recap(data), "generated_by": "deterministic-template"}
     prompt = f"{RECAP_PROMPT}\n\nDATA JSON:\n{_features_text(data)}"
     try:
-        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=1400)
-        return {"text": text, "generated_by": "gemini-analysis"}
+        text, gen_by, _bad = await grounded_generate(
+            gemini, prompt, data, ttl=600, temperature=0.4, max_tokens=1400,
+            fallback_text=_fallback_recap(data))
+        return {"text": text, "generated_by": gen_by}
     except Exception:
         return {"text": _fallback_recap(data), "generated_by": "deterministic-template"}
 
@@ -394,16 +441,17 @@ given numbers. No advice. End with: "Educational information — not investment 
 
 
 async def fx_explainer(gemini, pair_name: str, data: dict[str, Any]) -> dict[str, Any]:
+    fx_fallback = (f"{pair_name} is at {data.get('rate')}. It has moved "
+                   f"{data.get('d5_pct', 0):+.2f}% over 5 days. Educational information — "
+                   "not investment advice.")
     if gemini is None or not getattr(gemini, "available", False):
-        return {"text": (f"{pair_name} is at {data.get('rate')}. It has moved "
-                         f"{data.get('d5_pct', 0):+.2f}% over 5 days. Educational information — "
-                         "not investment advice."),
-                "generated_by": "deterministic-template"}
-    prompt = f"{FX_PROMPT}\n\nDATA JSON:\n{_features_text({'pair': pair_name, **data})}"
+        return {"text": fx_fallback, "generated_by": "deterministic-template"}
+    payload = {"pair": pair_name, **data}
+    prompt = f"{FX_PROMPT}\n\nDATA JSON:\n{_features_text(payload)}"
     try:
-        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=900)
-        return {"text": text, "generated_by": "gemini-analysis"}
+        text, gen_by, _bad = await grounded_generate(
+            gemini, prompt, payload, ttl=600, temperature=0.4, max_tokens=900,
+            fallback_text=fx_fallback)
+        return {"text": text, "generated_by": gen_by}
     except Exception:
-        return {"text": (f"{pair_name} is at {data.get('rate')}, {data.get('d5_pct', 0):+.2f}% "
-                         "over 5 days. Educational information — not investment advice."),
-                "generated_by": "deterministic-template"}
+        return {"text": fx_fallback, "generated_by": "deterministic-template"}
