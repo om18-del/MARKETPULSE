@@ -315,6 +315,7 @@ async def full_analysis(instrument_id: str) -> dict[str, Any]:
         "factors": assessment.get("factors"),
         "filters": filters_bundle,
         "cross_asset": cross,
+        "what_would_change_this_read": assessment.get("what_would_change_this_read") or [],
         "news_headlines": [{"title": a.get("title"), "publisher": a.get("publisher"),
                             "sentiment": a.get("sentiment"), "reason": a.get("reason")}
                            for a in tagged[:5]],

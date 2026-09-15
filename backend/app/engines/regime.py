@@ -122,7 +122,10 @@ def _volume_factor(rows: list[Row]) -> dict[str, Any]:
         parts.append({"name": "Volume vs 20d avg", "value": f"{ratio:.2f}×",
                       "rule": ">1× = above-average participation", "weight": 0.6,
                       "sub_score": sub,
-                      "meaning": "moves backed by volume" if ratio > 1.2 else "thin participation"})
+                      "meaning": ("above-average participation — today's move is backed by real volume"
+                                  if ratio > 1.2 else
+                                  "above-average participation" if ratio > 1 else
+                                  "below-average participation — thin trading today")})
         score += sub * 0.6
     ud = ind.updown_volume_ratio(rows)
     if ud is not None:

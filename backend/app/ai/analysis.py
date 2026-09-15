@@ -11,21 +11,41 @@ Pulse Assistant (the other role) never uses this module.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 SYSTEM_PROMPT = """You are the Analysis Engine of MarketPulse, an educational \
 market-literacy platform. You translate pre-computed quantitative features into \
 clear, structured explanations for beginners.
 
-RULES:
-- Use ONLY the numbers in the provided FEATURES JSON. Never invent or alter any number.
-- Never give investment advice, recommendations, or price predictions. You describe \
-the current environment, not the future.
-- Structure every thesis exactly as: "Structural Read", "Cross-Asset Drivers", \
-"Risk Conditions", "What Would Change This Read".
-- Begin sections with the verdict sentence, then explain in plain English.
-- End with the exact line: "Educational information — not investment advice."
-- Maximum ~220 words. No markdown headings, use plain sentences with the four labels."""
+GROUNDING RULES (violations are rejected):
+- Every number you write MUST come from the FEATURES JSON. You may round long \
+decimals to at most 2 places (write -0.48, never -0.48251929…); never alter \
+formatted values like "-3.13%" or "1.03×"; never derive or compute new figures.
+- Never mention a metric that is absent from the JSON (no VIX, breadth, or \
+macro numbers unless they are literally in the payload). If a section's data is \
+missing, write one short honest sentence saying so — never improvise.
+- Use the "what_would_change_this_read" list verbatim as the basis of the final \
+section; expand each item with its plain-English meaning, add nothing external.
+- Use the "cross_asset" drivers (correlations) for the Cross-Asset Drivers section; \
+if the list is empty, say the asset has no significant macro-driver relationships \
+right now and move on.
+- Never give investment advice, recommendations, or price predictions. Describe \
+the current environment, never the future.
+
+QUALITY RULES:
+- Structure every thesis exactly as four labeled sentences: "Structural Read", \
+"Cross-Asset Drivers", "Risk Conditions", "What Would Change This Read".
+- Begin the thesis with the verdict sentence: verdict, confidence, and the \
+regime_equation in plain words.
+- Each section: cite 2-3 concrete values WITH their meaning in plain English \
+(e.g. "RSI 39.8 — tilting bearish but far from oversold"). Explain what the \
+reader should learn from each number, not just its label.
+- Resolve apparent tensions explicitly (e.g. RSI oversold inside a downtrend = \
+falling but stretched; volume above average means real participation).
+- Sentence case, no markdown headings, no bullet points — plain sentences with \
+the four labels. Maximum ~220 words.
+- End with the exact line: "Educational information — not investment advice."""
 
 
 def _features_text(features: dict[str, Any]) -> str:
@@ -35,29 +55,97 @@ def _features_text(features: dict[str, Any]) -> str:
 async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
     """Structured thesis from deterministic features. Falls back to a
     deterministic template thesis when AI is unavailable."""
+    filt = features.get("filters") or {}
     payload = {
         "instrument": features.get("instrument_name", ""),
         "verdict": features.get("verdict"),
         "confidence": features.get("confidence"),
         "regime_equation": features.get("equation"),
         "factors": features.get("factors"),
-        "deterministic_filters": features.get("filters"),
-        "key_news": features.get("news_headlines", [])[:5],
+        "cross_asset_drivers": (features.get("cross_asset") or {}).get("drivers") or {},
+        "cross_asset_summary": (features.get("cross_asset") or {}).get("summary", ""),
+        "vix_velocity": filt.get("vix_velocity"),
+        "vwap_position": filt.get("vwap"),
+        "what_would_change_this_read": features.get("what_would_change_this_read") or [],
+        "key_news": features.get("news_headlines", [])[:3],
     }
+    # Drop None entries so the model never sees an ambiguous key.
+    payload = {k: v for k, v in payload.items() if v is not None}
     prompt = (
         f"{SYSTEM_PROMPT}\n\nFEATURES JSON:\n{_features_text(payload)}\n\n"
-        "Write the four-section thesis now."
+        "Write the four-section thesis now. Ground every sentence in this JSON."
     )
     fallback = _fallback_thesis(features)
     if gemini is None or not getattr(gemini, "available", False):
         return {"text": fallback, "generated_by": "deterministic-template"}
     try:
-        text = await gemini.generate(prompt, ttl=300, temperature=0.35, max_tokens=700)
+        text = await gemini.generate(prompt, ttl=300, temperature=0.3, max_tokens=700)
         if _mentions_forbidden(text):
             text = fallback + "\n\n(Redacted and replaced: the model attempted advice.)"
+        bad = _grounding_violations(text, payload)
+        if bad:
+            # The model quoted numbers that exist nowhere in the payload —
+            # serve the deterministic template, which is grounded by design.
+            return {"text": fallback,
+                    "generated_by": "deterministic-template (grounding guard)",
+                    "grounding_violations": bad}
         return {"text": text, "generated_by": "gemini-analysis"}
     except Exception:
         return {"text": fallback, "generated_by": "deterministic-template"}
+
+
+def _collect_allowed_numbers(x: Any, allowed: set[str]) -> None:
+    """Every number that legitimately appears in the payload — numeric leaves
+    plus numbers embedded inside formatted strings ('-3.90%', '1.03×', '39.8').
+    Rounded spellings (1 and 2 decimals) are allowed too, so a model that
+    writes -0.48 for -0.48251929… is not falsely flagged."""
+    if isinstance(x, dict):
+        for v in x.values():
+            _collect_allowed_numbers(v, allowed)
+    elif isinstance(x, list):
+        for v in x:
+            _collect_allowed_numbers(v, allowed)
+    elif isinstance(x, bool):
+        return
+    elif isinstance(x, (int, float)):
+        allowed.add(str(x))
+        allowed.add(str(abs(x)))
+        for nd in (0, 1, 2):
+            allowed.add(f"{x:.{nd}f}")
+            allowed.add(f"{abs(x):.{nd}f}")
+    elif isinstance(x, str):
+        for m in re.findall(r"-?\d+(?:\.\d+)?", x):
+            allowed.add(m)
+            allowed.add(m.lstrip("-"))
+            try:
+                f = float(m)
+            except ValueError:
+                continue
+            for nd in (0, 1, 2):
+                allowed.add(f"{f:.{nd}f}")
+                allowed.add(f"{abs(f):.{nd}f}")
+
+
+def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
+    """Numbers in the output that exist nowhere in the payload.
+
+    Only checks decimals and integers ≥ 100 — small integers are almost
+    always structural prose ('20-day average', 'four sections'), not data.
+    """
+    allowed: set[str] = set()
+    _collect_allowed_numbers(payload, allowed)
+    normalized = text.replace(",", "")
+    quoted = re.findall(r"-?\d+\.\d+|-?\d{3,}", normalized)
+    bad: list[str] = []
+    for q in quoted:
+        if q in allowed or q.lstrip("-") in allowed:
+            continue
+        try:
+            if abs(float(q)) >= 100 or "." in q:
+                bad.append(q)
+        except ValueError:
+            continue
+    return bad
 
 
 def _mentions_forbidden(text: str) -> bool:
@@ -102,9 +190,12 @@ def _fallback_thesis(f: dict[str, Any]) -> str:
 
 
 ANALYSIS_CHAT_PROMPT = """You are the Analysis chat of MarketPulse. Answer the user's question \
-using ONLY the MARKET CONTEXT JSON provided. Explain like a patient teacher for beginners. \
+using ONLY the MARKET CONTEXT JSON provided — every number you cite must appear in that \
+JSON; if the context lacks the data the question needs, say so plainly and explain what \
+would answer it. Explain like a patient teacher for beginners: answer in the first \
+sentence, then give the reasoning with 2-3 cited values and their plain-English meaning. \
 Never give advice, predictions, or recommendations; if asked, explain how one *could think about* \
-the situation instead. Cite the exact numbers you use. Max 180 words. \
+the situation instead. Max 180 words. \
 End with: "Educational information — not investment advice."
 """
 
