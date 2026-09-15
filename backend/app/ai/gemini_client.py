@@ -32,6 +32,10 @@ log = logging.getLogger("marketpulse.ai")
 MODEL_LADDER = ["gemini-flash-lite-latest", "gemini-3.6-flash"]
 
 
+class TruncatedOutputError(RuntimeError):
+    """Model hit max_output_tokens mid-synthesis (finish_reason=MAX_TOKENS)."""
+
+
 def _is_daily_quota_error(exc: Exception) -> bool:
     """True when the error is a per-model DAILY quota exhaustion (not per-minute)."""
     text = str(exc)
@@ -116,19 +120,30 @@ class GeminiClient:
                 if (key, model) in tried or (key, model) in self._exhausted:
                     continue
                 tried.add((key, model))
+                # Sweep 2 doubles the budget: thinking-style models vary in
+                # reasoning spend, so a truncation retry with 2x tokens usually
+                # completes (the audit's top failure was MAX_TOKENS truncation).
+                budget = max_tokens * (round_no + 1)
                 try:
-                    def _call() -> str:
+                    def _call() -> tuple[str, str]:
                         resp = models.generate_content(
                             model=model,
                             contents=prompt,
                             config={
                                 "temperature": temperature,
-                                "max_output_tokens": max_tokens,
+                                "max_output_tokens": budget,
                             },
                         )
-                        return (resp.text or "").strip()
+                        # finish_reason: MAX_TOKENS = output truncated mid-synthesis
+                        # (the audit's top failure theme). Surface it so callers
+                        # can retry instead of serving a cut-off thesis.
+                        reason = str(getattr(resp, "finish_reason", "") or "")
+                        return (resp.text or "").strip(), reason
 
-                    text = await asyncio.to_thread(_call)
+                    text, finish = await asyncio.to_thread(_call)
+                    if "MAX_TOKENS" in finish.upper():
+                        raise TruncatedOutputError(
+                            f"output truncated (finish_reason=MAX_TOKENS, {len(text)} chars)")
                     self._cache.set(cache_key, text, ttl)
                     # PRISM: forward the real call (fail-open, never blocks)
                     prism.emit_llm_bg(
@@ -155,6 +170,10 @@ class GeminiClient:
                         # Per-minute limit: immediately try the next key/model,
                         # tiny pause to let the RPM window breathe.
                         await asyncio.sleep(0.8)
+                        continue
+                    if isinstance(exc, TruncatedOutputError):
+                        log.warning("Gemini output truncated on %s/%s — next attempt gets 2x budget",
+                                    model, key[-6:] if len(self._keys) > 1 else "single")
                         continue
                     await asyncio.sleep(1.2 * (round_no + 1))
         raise RuntimeError(f"gemini failed after retries: {last_exc}")

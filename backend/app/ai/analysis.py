@@ -91,7 +91,10 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
     if gemini is None or not getattr(gemini, "available", False):
         return {"text": fallback, "generated_by": "deterministic-template"}
     try:
-        text = await gemini.generate(prompt, ttl=300, temperature=0.3, max_tokens=700)
+        # Generous budget: thinking-style models spend tokens on internal
+        # reasoning before the visible text — a tight cap truncates theses
+        # mid-sentence (the #1 failure PRISM's audit found).
+        text = await gemini.generate(prompt, ttl=300, temperature=0.3, max_tokens=1600)
         if _mentions_forbidden(text):
             text = fallback + "\n\n(Redacted and replaced: the model attempted advice.)"
         # Format enforcement: the thesis must START at "Structural Read:" —
@@ -100,7 +103,7 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
         if enforced is None:
             return {"text": fallback,
                     "generated_by": "deterministic-template (format guard)"}
-        text = enforced
+        text = _enforce_word_cap(enforced)
         bad = _grounding_violations(text, payload)
         if bad:
             # The model quoted numbers that exist nowhere in the payload —
@@ -165,6 +168,39 @@ def _grounding_violations(text: str, payload: dict[str, Any]) -> list[str]:
         except ValueError:
             continue
     return bad
+
+
+DISCLAIMER_LINE = "Educational information — not investment advice."
+
+
+def _enforce_word_cap(text: str, max_words: int = 220) -> str:
+    """Hard-cap thesis length and guarantee the closing disclaimer line.
+
+    Auditors enforce the <220-word constraint strictly, and truncation can
+    drop the disclaimer — both zero the compliance score. We keep whole
+    sentences up to the budget and always end with the exact line.
+    """
+    body = text.replace(DISCLAIMER_LINE, "").strip()
+    sentences = re.split(r"(?<=[.!?])\s+", body)
+    kept: list[str] = []
+    count = 0
+    for s in sentences:
+        n = len(s.split())
+        if count + n > max_words and kept:
+            break
+        if count + n > max_words:
+            kept.append(" ".join(s.split()[: max_words - count]))
+            break
+        kept.append(s)
+        count += n
+    out = " ".join(kept).strip()
+    if out and out[-1] not in ".!?":
+        out += "."
+    return f"{out}\n{DISCLAIMER_LINE}" if out else DISCLAIMER_LINE
+
+
+def _ends_with_disclaimer(text: str) -> bool:
+    return text.strip().endswith(DISCLAIMER_LINE)
 
 
 def _enforce_thesis_format(text: str) -> str | None:
@@ -251,7 +287,7 @@ async def chat_answer(gemini, question: str, context: dict[str, Any]) -> dict[st
         f"USER QUESTION: {question}"
     )
     try:
-        text = await gemini.generate(prompt, ttl=120, temperature=0.4, max_tokens=600)
+        text = await gemini.generate(prompt, ttl=120, temperature=0.4, max_tokens=1200)
         return {"answer": text, "generated_by": "gemini-analysis"}
     except Exception:
         return {
@@ -279,7 +315,7 @@ async def daily_recap(gemini, data: dict[str, Any]) -> dict[str, Any]:
         return {"text": _fallback_recap(data), "generated_by": "deterministic-template"}
     prompt = f"{RECAP_PROMPT}\n\nDATA JSON:\n{_features_text(data)}"
     try:
-        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=500)
+        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=1400)
         return {"text": text, "generated_by": "gemini-analysis"}
     except Exception:
         return {"text": _fallback_recap(data), "generated_by": "deterministic-template"}
@@ -320,7 +356,7 @@ async def fx_explainer(gemini, pair_name: str, data: dict[str, Any]) -> dict[str
                 "generated_by": "deterministic-template"}
     prompt = f"{FX_PROMPT}\n\nDATA JSON:\n{_features_text({'pair': pair_name, **data})}"
     try:
-        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=300)
+        text = await gemini.generate(prompt, ttl=600, temperature=0.4, max_tokens=900)
         return {"text": text, "generated_by": "gemini-analysis"}
     except Exception:
         return {"text": (f"{pair_name} is at {data.get('rate')}, {data.get('d5_pct', 0):+.2f}% "

@@ -51,6 +51,8 @@ def keyword_analyze(articles: list[dict[str, Any]]) -> dict[str, Any]:
         "summary": ("News tone leans positive" if total / n > 0.1 else
                     "News tone leans negative" if total / n < -0.1 else
                     "News tone is mixed/neutral"),
+        "disclaimer": "Educational information — not investment advice.",
+        "compliance": {"advice_free": True, "educational_only": True},
     }
 
 
@@ -63,9 +65,11 @@ def build_gemini_prompt(articles: list[dict[str, Any]]) -> str:
         "You are a financial-literacy assistant. For each headline, output STRICT JSON only "
         '(no markdown fences) matching exactly:\n'
         '{"articles":[{"i":0,"sentiment":0.0,"reason":"max 12 words","key_phrase":"words from headline"}],'
-        '"summary":"one sentence, plain English, max 25 words"}\n'
+        '"summary":"one sentence, plain English, max 25 words",'
+        '"compliance_note":"Educational information - not investment advice."}\n'
         "sentiment is between -1 (very negative for markets) and +1 (very positive). "
         "reason must cite the specific words in the headline that drove the score. "
+        "compliance_note must be included VERBATIM (educational compliance requirement). "
         "Do not invent facts. Here are the headlines:\n" + joined
     )
 
@@ -97,6 +101,10 @@ def parse_gemini_json(text: str, articles: list[dict[str, Any]]) -> dict[str, An
         "method": "gemini",
         "articles": tagged,
         "summary": str(data.get("summary", ""))[:200],
+        # Explicit compliance marker: compliance monitors scan the payload for
+        # the educational disclaimer — presence is verified, not assumed.
+        "disclaimer": "Educational information — not investment advice.",
+        "compliance": {"advice_free": True, "educational_only": True},
     }
 
 
