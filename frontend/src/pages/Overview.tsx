@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Flame, Globe2, IndianRupee, LayoutGrid, Search as SearchIcon, TrendingDown, TrendingUp } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { api } from '../api'
@@ -34,16 +34,68 @@ const REGION_LABEL: Record<string, string> = {
   fx: '💱 Currencies',
 }
 
+type LiveQuote = { price: number; change_pct: number; data_date?: string; symbol: string }
+
 export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) {
   const { data, loading, error, refetch } = useApi<Overview>('/api/overview')
   const watchlist = useWatchlist()
   const [showSearch, setShowSearch] = useState(true)
 
+  // Real-time overlay: the overview grid is built on EOD history; this
+  // endpoint returns the exchange's live quotes and we merge them over the
+  // cards every 60s so displayed values tick during market hours.
+  const [live, setLive] = useState<Record<string, LiveQuote>>({})
+  const [liveStamp, setLiveStamp] = useState<Date | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const pull = async () => {
+      try {
+        const r = await fetch('/api/live-quotes')
+        if (!r.ok) return
+        const j = await r.json()
+        if (!cancelled && j.quotes) {
+          setLive(j.quotes)
+          setLiveStamp(new Date())
+        }
+      } catch {
+        /* keep last good overlay */
+      }
+    }
+    void pull()
+    const iv = setInterval(() => {
+      if (document.visibilityState === 'visible') void pull()
+    }, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [])
+
+  const applyLive = useCallback(
+    (entries: GridEntry[]) =>
+      entries.map((e) => {
+        const q = live[e.id]
+        return q && e.price != null
+          ? { ...e, price: q.price, change_pct: q.change_pct }
+          : e
+      }),
+    [live],
+  )
+
+  const applyLiveHeat = useCallback(
+    (rows: { id: string; name: string; region: string; category: string; change_pct: number }[]) =>
+      rows.map((r) => {
+        const q = live[r.id]
+        return q ? { ...r, change_pct: q.change_pct } : r
+      }),
+    [live],
+  )
+
   const watchEntries = useMemo<GridEntry[]>(() => {
     if (!data) return []
     const all = Object.values(data.grid).flat()
-    return watchlist.items.map((id) => all.find((e) => e.id === id)).filter(Boolean) as GridEntry[]
-  }, [data, watchlist.items])
+    return applyLive(watchlist.items.map((id) => all.find((e) => e.id === id)).filter(Boolean) as GridEntry[])
+  }, [data, watchlist.items, applyLive])
 
   if (error) {
     return (
@@ -150,6 +202,15 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
         <div className="faint" style={{ textAlign: 'center', marginTop: 8 }}>
           press <kbd>Ctrl</kbd> <kbd>K</kbd> anywhere to search · every NSE-listed company is searchable · amounts default to ₹ INR
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+          {liveStamp ? (
+            <span className="chip pos" title="All prices refresh automatically every minute during market hours">
+              <span className="live-dot" /> live prices · updated {liveStamp.toLocaleTimeString()}
+            </span>
+          ) : (
+            <span className="chip">loading live prices…</span>
+          )}
+        </div>
       </section>
 
       {/* Live NSE movers — direct from nseindia.com */}
@@ -178,7 +239,7 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
               <span className="faint" style={{ textTransform: 'none', letterSpacing: 0 }}>{entries.filter((e) => e.available !== false).length} assets</span>
             </h2>
             <div className="grid cols-4">
-              {entries.map((e, i) => (
+              {applyLive(entries).map((e, i) => (
                 <IndexCard key={e.id} e={e} index={i} watched={watchlist.has(e.id)} onToggleWatch={watchlist.toggle} />
               ))}
             </div>
@@ -191,18 +252,18 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
         <section className="section grid cols-2" style={{ alignItems: 'start' }}>
           <div className="card">
             <div className="card-title"><Flame size={15} /> Market heatmap <span className="faint" style={{ textTransform: 'none' }}>day change %</span></div>
-            <Heatmap data={data.heatmap} />
+            <Heatmap data={applyLiveHeat(data.heatmap)} />
           </div>
           <div>
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="card-title" style={{ color: 'var(--pos)' }}><TrendingUp size={15} /> Top gainers today</div>
-              {data.movers.gainers.slice(0, 4).map((e) => (
+              {applyLive(data.movers.gainers).slice(0, 4).map((e) => (
                 <MoverRow key={e.id} e={e} />
               ))}
             </div>
             <div className="card">
               <div className="card-title" style={{ color: 'var(--neg)' }}><TrendingDown size={15} /> Top losers today</div>
-              {data.movers.losers.slice(0, 4).map((e) => (
+              {applyLive(data.movers.losers).slice(0, 4).map((e) => (
                 <MoverRow key={e.id} e={e} />
               ))}
             </div>

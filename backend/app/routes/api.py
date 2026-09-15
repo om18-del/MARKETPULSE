@@ -72,6 +72,16 @@ async def overview() -> dict:
         raise HTTPException(status_code=503, detail=f"overview unavailable: {exc}") from exc
 
 
+@router.get("/live-quotes")
+async def live_quotes() -> dict:
+    """Real-time quotes for the whole board (60s cached) — merged client-side
+    over the overview grid so the homepage ticks during market hours."""
+    try:
+        return await service.live_quotes()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"live quotes unavailable: {exc}") from exc
+
+
 @router.get("/search")
 async def search(q: str = Query(..., min_length=1, max_length=50)) -> dict:
     return await service.search_all(q)

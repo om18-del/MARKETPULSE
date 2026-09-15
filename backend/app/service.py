@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from .ai import analysis as ai_analysis
@@ -607,6 +608,56 @@ async def watchlist_quotes(instrument_ids: list[str]) -> dict[str, Any]:
         "quotes": quotes,
         "disclaimer": DISCLAIMER,
     }
+
+
+_LIVE_QUOTES_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+async def live_quotes() -> dict[str, Any]:
+    """Real-time quotes for the whole board, keyed by instrument id.
+
+    One batched pass over Yahoo's keyless chart API (each response carries
+    `regularMarketPrice` — the live quote) merged with the previous close for
+    a real change %. Cached 60s so the Overview's 60s auto-refresh and any
+    number of concurrent visitors share one upstream round.
+    """
+    hit = _LIVE_QUOTES_CACHE.get("all")
+    if hit and time.monotonic() - hit[0] < 60.0:
+        return hit[1]
+
+    from .data.providers.yahoo import YahooChartProvider
+    yahoo = YahooChartProvider()
+    prev_good: dict = (_LIVE_QUOTES_CACHE.get("last_good") or {}).get("quotes", {})
+    sem = asyncio.Semaphore(8)  # gentle on the upstream: 8 concurrent max
+
+    async def _one(inst: Instrument) -> tuple[str, dict | None]:
+        ysym = _tf_symbol(inst)
+        if not ysym:
+            return inst.id, prev_good.get(inst.id)
+        try:
+            async with sem:
+                bars = await yahoo.fetch_bars(ysym, rng="5d", interval="1d")
+            if len(bars) < 2:
+                raise ValueError("no bars")
+            last, prev = bars[-1]["close"], bars[-2]["close"]
+            if not last or not prev:
+                raise ValueError("no closes")
+            return inst.id, {
+                "price": round(float(last), 4),
+                "change_pct": round((float(last) / float(prev) - 1) * 100, 2),
+                "data_date": bars[-1].get("date"),
+                "symbol": ysym,
+            }
+        except Exception:
+            # Transient failure: keep the last good quote so no card goes dark.
+            return inst.id, prev_good.get(inst.id)
+
+    results = await asyncio.gather(*(_one(i) for i in ALL.values()))
+    quotes = {qid: q for r in results if r is not None and q is not None for qid, q in [r]}
+    out = {"quotes": quotes, "as_of": datetime.now(timezone.utc).isoformat(), "count": len(quotes)}
+    _LIVE_QUOTES_CACHE["all"] = (time.monotonic(), out)
+    _LIVE_QUOTES_CACHE["last_good"] = (time.monotonic(), out)
+    return out
 
 
 _CHART_BARS_CACHE: dict[str, tuple[float, dict]] = {}
