@@ -19,9 +19,10 @@ export function NewsList({ articles, showReason = true }: { articles: NewsArticl
               <a href={a.link} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 14, display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
                 {a.title} <ExternalLink size={12} style={{ flexShrink: 0 }} />
               </a>
-              <div className="faint" style={{ marginTop: 3 }}>
-                {a.publisher}{a.published ? ` · ${a.published}` : ''}
-                {a.method ? ` · ${a.method === 'gemini' ? 'AI-tagged' : 'keyword-tagged'}` : ''}
+              <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {a.publisher ? <span className="chip" title="Publisher of this article">📰 {a.publisher}</span> : null}
+                {a.published ? <span className="faint" style={{ fontSize: 12 }}>{a.published}</span> : null}
+                {a.method ? <span className="faint" style={{ fontSize: 12 }}>{a.method === 'gemini' ? 'AI-tagged' : 'keyword-tagged'}</span> : null}
               </div>
               {showReason && a.reason ? (
                 <div className="faint" style={{ marginTop: 3, color: 'var(--text-dim)' }}>

@@ -42,6 +42,10 @@ class DemoToggleRequest(BaseModel):
     enabled: bool
 
 
+class WatchlistRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=100)
+
+
 # ------------------------------- basics --------------------------------
 @router.get("/health")
 async def health() -> dict:
@@ -100,6 +104,17 @@ async def analysis_progress(instrument_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/chart/{instrument_id}")
+async def chart_bars(instrument_id: str, tf: str = Query("daily", pattern="^(intraday|daily|monthly)$")) -> dict:
+    """Bars for the main price chart — daily (official files), intraday (5m) or monthly."""
+    try:
+        return await service.chart_bars(instrument_id, tf)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"chart bars unavailable: {exc}") from exc
+
+
 @router.get("/timeframes/{instrument_id}")
 async def timeframes(instrument_id: str, force: bool = Query(False)) -> dict:
     """Bullish/bearish stats per timeframe: intraday (5m) · daily · monthly."""
@@ -107,6 +122,24 @@ async def timeframes(instrument_id: str, force: bool = Query(False)) -> dict:
         return await service.timeframe_analysis(instrument_id, force=force)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/scanner/intraday-conflicts")
+async def intraday_conflicts() -> dict:
+    """NIFTY 50 stocks whose intraday direction opposes their daily trend."""
+    return await service.intraday_scanner()
+
+
+@router.get("/integrity")
+async def integrity() -> dict:
+    """Data self-audit: duplicate dates, ordering, flat lines, demo fallbacks."""
+    return await service.integrity_audit()
+
+
+@router.post("/watchlist/quotes")
+async def watchlist_quotes(req: WatchlistRequest) -> dict:
+    """EOD quotes for the user's saved watchlist (one round-trip, fully cached)."""
+    return await service.watchlist_quotes(req.ids)
 
 
 # --------------------------------- news --------------------------------

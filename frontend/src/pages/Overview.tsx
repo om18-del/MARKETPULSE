@@ -9,6 +9,7 @@ import { Heatmap } from '../components/Heatmap'
 import { GridSkeleton, CardSkeleton } from '../components/Skeletons'
 import { SearchBar } from '../components/SearchBar'
 import { RecapCard } from '../components/RecapCard'
+import { ScannerPanel } from '../components/ScannerPanel'
 import { CurrencyPanel } from '../components/CurrencyPanel'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useEffect } from 'react'
@@ -213,6 +214,9 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
       <section className="section">
         <RecapCard />
       </section>
+
+      {/* Intraday ⟷ trend conflict scanner (reversal candidates) */}
+      <ScannerPanel />
 
       {/* Currency panel */}
       {data ? (

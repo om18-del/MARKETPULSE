@@ -41,6 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Per-IP throttle on AI-costing routes (chat/assistant/image/recap) so a
+# request flood cannot burn the Gemini quota mid-demo. Fails open.
+from .core.throttle import AIThrottleMiddleware  # noqa: E402
+app.add_middleware(AIThrottleMiddleware)
+
 app.include_router(router)
 
 

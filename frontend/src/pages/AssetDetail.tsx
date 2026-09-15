@@ -76,13 +76,34 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
             </span>
           </span>
         ) : null}
+        {d.delayed_live ? (
+          <span
+            className="chip"
+            title={d.delayed_live.note}
+            style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}
+          >
+            <span className="live-dot" />
+            ≈ live ₹{d.delayed_live.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            <span style={{ color: d.delayed_live.change_pct >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>
+              {d.delayed_live.change_pct >= 0 ? '▲' : '▼'} {Math.abs(d.delayed_live.change_pct).toFixed(2)}%
+            </span>
+            <span className="muted" style={{ fontSize: 11 }}>· 15-min delayed</span>
+          </span>
+        ) : null}
       </div>
 
       {/* Chart loads immediately from the lightweight asset endpoint */}
       <section className="section">
         <div className="card">
           <ErrorBoundary name="PriceChart">
-            {d.rows.length ? <PriceChart data={d} /> : <p className="muted">No chart data.</p>}
+            {d.rows.length ? (
+              <PriceChart
+                initialBars={d.rows.map((r) => ({ time: r.date, close: r.close }))}
+                instrumentId={d.instrument.id}
+              />
+            ) : (
+              <p className="muted">No chart data.</p>
+            )}
           </ErrorBoundary>
         </div>
       </section>

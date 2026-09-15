@@ -1,5 +1,7 @@
 # 📊 MarketPulse — AI Market Decision-Support Platform
 
+[![CI](https://github.com/om18-del/MARKETPULSE/actions/workflows/ci.yml/badge.svg)](https://github.com/om18-del/MARKETPULSE/actions/workflows/ci.yml)
+
 **See the market's pulse. Understand the why.**
 
 MarketPulse brings scattered market signals — prices, volatility, FX, commodities, news — into one explainable view for beginners. It tells you whether the current market environment looks **Bullish · Bearish · Neutral · Uncertain**, shows **the full evidence behind every number**, and never gives investment advice.

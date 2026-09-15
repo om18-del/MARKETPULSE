@@ -146,7 +146,7 @@ REGISTRY: dict[str, Instrument] = {i.id: i for i in [
     # ------------------------- Macro / commodities ----------------------
     Instrument("gold", "Gold (Spot)", "commodity", "macro", "USD",
                stooq="xauusd", twelvedata="XAU/USD", finnhub="OANDA:XAU_USD",
-               alphavantage=None, weight=1.0,
+               alphavantage=None, yahoo="GC=F", weight=1.0,  # futures track spot ~0.1%
                keywords=("gold", "bullion", "xau")),
     Instrument("crude", "Crude Oil WTI", "commodity", "macro", "USD",
                stooq="cl.f", twelvedata="WTI/USD", finnhub=None, alphavantage=None,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, BarChart3, BookMarked, BookOpen, FlaskConical, Globe2, Info, Moon, Newspaper, Sun } from 'lucide-react'
+import { Activity, BarChart3, BookMarked, BookOpen, FlaskConical, Globe2, Info, Moon, Newspaper, Search, Star, Sun } from 'lucide-react'
 import { OverviewPage } from './pages/Overview'
 import { AssetDetailPage } from './pages/AssetDetail'
 import { ComparePage } from './pages/Compare'
@@ -12,12 +12,16 @@ import { LearnPage } from './pages/Learn'
 import { DictionaryPage } from './pages/Dictionary'
 import { MethodologyPage } from './pages/Methodology'
 import { AboutPage } from './pages/About'
+import { WatchlistPage } from './pages/WatchlistPage'
 import { PulseAssistant } from './components/PulseAssistant'
+import { OnboardingTour } from './components/OnboardingTour'
+import { SearchBar } from './components/SearchBar'
 import { DisclaimerBar, DisclaimerModal } from './components/Disclaimer'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: Globe2 },
+  { to: '/watchlist', label: 'Watchlist', icon: Star },
   { to: '/fx', label: 'FX', icon: BarChart3 },
   { to: '/news', label: 'News', icon: Newspaper },
   { to: '/chat', label: 'Chat', icon: Activity },
@@ -32,7 +36,13 @@ export default function App() {
     (localStorage.getItem('marketpulse.theme') as 'dark' | 'light') ?? 'dark',
   )
   const [explainText, setExplainText] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const location = useLocation()
+
+  // Close the search overlay whenever the user navigates to an asset.
+  useEffect(() => {
+    setSearchOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -63,13 +73,23 @@ export default function App() {
               </NavLink>
             ))}
           </div>
-          <button
-            className="theme-btn"
-            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              className="theme-btn"
+              onClick={() => setSearchOpen((v) => !v)}
+              aria-label="Search stocks"
+              title="Search (Ctrl K)"
+            >
+              <Search size={15} />
+            </button>
+            <button
+              className="theme-btn"
+              onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -86,6 +106,7 @@ export default function App() {
             <Routes location={location}>
               <Route path="/" element={<OverviewPage onExplain={setExplainText} />} />
               <Route path="/asset/:id" element={<AssetDetailPage onExplain={setExplainText} />} />
+              <Route path="/watchlist" element={<WatchlistPage />} />
               <Route path="/compare" element={<ComparePage />} />
               <Route path="/fx" element={<FXPage onExplain={setExplainText} />} />
               <Route path="/news" element={<NewsPage />} />
@@ -100,7 +121,25 @@ export default function App() {
         </motion.main>
       </AnimatePresence>
 
+      {searchOpen && (
+        <div
+          onClick={() => setSearchOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 180, background: 'rgba(4,8,16,0.6)',
+            display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+            padding: '12vh 16px 0', backdropFilter: 'blur(3px)',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 560 }}
+          >
+            <SearchBar autoFocus />
+          </div>
+        </div>
+      )}
       <PulseAssistant />
+      <OnboardingTour />
     </div>
   )
 }

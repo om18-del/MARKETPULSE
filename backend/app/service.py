@@ -202,9 +202,35 @@ async def asset_detail(instrument_id: str) -> dict[str, Any]:
         prev = closes[-2] if len(closes) > 1 else closes[-1]
         quote = {"price": closes[-1], "change_pct": round((closes[-1] / prev - 1) * 100, 2) if prev else 0.0,
                  "provider": hist["provenance"]["provider"], "demo": used_demo}
+
+    # Additive: best-effort "≈ delayed live" price from the exchange's own
+    # 5-minute feed (Yahoo). NSE/BSE equities are EOD via official files, so
+    # during market hours this is the freshest number visible to a beginner.
+    # Strictly optional — any failure here just omits the field.
+    delayed_live = None
+    try:
+        ysym = _tf_symbol(inst)
+        if ysym and inst.region == "india" and not ysym.startswith("^"):
+            from .data.providers.yahoo import YahooChartProvider
+            bars = await YahooChartProvider().fetch_bars(ysym, rng="1d", interval="5m")
+            if len(bars) >= 2:
+                last, prev_bar = bars[-1], bars[-2]
+                last_close, prev_close = float(last["close"]), float(prev_bar["close"])
+                eod_price = closes[-1] if closes else None
+                if last_close > 0 and abs(last_close - (eod_price or last_close)) > 1e-9:
+                    delayed_live = {
+                        "price": round(last_close, 2),
+                        "change_pct": round((last_close / prev_close - 1) * 100, 2),
+                        "bar_time": last.get("time") or last.get("date"),
+                        "note": "≈ 15-min delayed exchange feed — fresher than the EOD official close",
+                    }
+    except Exception:
+        delayed_live = None
+
     return {
         "instrument": inst.to_dict(),
         "quote": quote,
+        "delayed_live": delayed_live,
         "rows": rows[-180:],
         "spark": closes[-30:],
         "data_mode": "demo" if used_demo else "live",
@@ -540,6 +566,119 @@ async def nse_status() -> dict[str, Any]:
     }
 
 
+async def watchlist_quotes(instrument_ids: list[str]) -> dict[str, Any]:
+    """Live EOD quotes for the user's watchlist (additive; body optional).
+
+    One round-trip for the whole list, fan-out over the aggregator (which is
+    fully cached). Unknown/failed ids are skipped honestly rather than
+    fabricating a placeholder quote.
+    """
+    agg = get_aggregator()
+
+    async def _one(iid: str) -> dict[str, Any] | None:
+        try:
+            inst = ALL.get(iid) or await agg.dynamic_instrument(iid)
+            if inst is None:
+                return None
+            hist, used_demo = await _history_with_demo(iid)
+            rows = hist.get("rows") or []
+            if len(rows) < 2:
+                return None
+            closes = [float(r["close"]) for r in rows]
+            prev = closes[-2]
+            return {
+                "id": inst.id,
+                "name": inst.name,
+                "currency": inst.currency,
+                "price": closes[-1],
+                "change_pct": round((closes[-1] / prev - 1) * 100, 2) if prev else 0.0,
+                "data_date": rows[-1]["date"],
+                "demo": used_demo,
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*(_one(i) for i in instrument_ids))
+    quotes = [r for r in results if r is not None]
+    return {
+        "requested": len(instrument_ids),
+        "found": len(quotes),
+        "quotes": quotes,
+        "disclaimer": DISCLAIMER,
+    }
+
+
+_CHART_BARS_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+async def chart_bars(instrument_id: str, tf: str = "daily") -> dict[str, Any]:
+    """Bars for the main price chart: daily · intraday (5m) · monthly.
+
+    Daily comes from the official exchange files (never demo), intraday and
+    monthly from Yahoo's keyless feed. Timestamps are preserved — intraday
+    bars carry 'YYYY-MM-DD HH:MM' (IST) so the axis shows session times.
+    """
+    inst = ALL.get(instrument_id)
+    if inst is None:
+        inst = await get_aggregator().dynamic_instrument(instrument_id)
+    if inst is None:
+        raise ValueError(f"unknown instrument: {instrument_id}")
+
+    tf = tf if tf in ("intraday", "daily", "monthly") else "daily"
+    cache_key = f"chart:{inst.id}:{tf}"
+    hit = _CHART_BARS_CACHE.get(cache_key)
+    ttl = 120.0 if tf == "intraday" else 3600.0
+    if hit and time.monotonic() - hit[0] < ttl:
+        return hit[1]
+
+    rows: list[dict] = []
+    interval_note = ""
+    if tf == "daily":
+        try:
+            hist, used_demo = await _history_with_demo(inst.id)
+            if not used_demo:
+                rows = hist.get("rows") or []
+                interval_note = "daily closes · official exchange files"
+        except Exception:
+            rows = []
+        if not rows:
+            ysym = _tf_symbol(inst)
+            if ysym:
+                try:
+                    from .data.providers.yahoo import YahooChartProvider
+                    rows = await YahooChartProvider().fetch_bars(ysym, rng="1y", interval="1d")
+                    interval_note = "daily closes · Yahoo"
+                except Exception:
+                    rows = []
+    else:
+        ysym = _tf_symbol(inst)
+        if ysym:
+            try:
+                from .data.providers.yahoo import YahooChartProvider
+                if tf == "intraday":
+                    rows = await YahooChartProvider().fetch_bars(ysym, rng="5d", interval="5m")
+                    interval_note = "5-minute bars · last 5 sessions (IST)"
+                else:
+                    rows = await YahooChartProvider().fetch_bars(ysym, rng="10y", interval="1mo")
+                    interval_note = "monthly closes · last 10 years"
+            except Exception:
+                rows = []
+
+    bars = [{"time": (r.get("time") or r.get("date")), "close": r.get("close")} for r in rows]
+    bars = [b for b in bars if b["time"] and b["close"] is not None]
+    out = {
+        "instrument": inst.to_dict(),
+        "timeframe": tf,
+        "available": len(bars) >= 2,
+        "reason": None if len(bars) >= 2 else "no bars available for this timeframe",
+        "bars": bars,
+        "interval_note": interval_note,
+        "disclaimer": DISCLAIMER,
+    }
+    _CHART_BARS_CACHE[cache_key] = (time.monotonic(), out)
+    return out
+
+
 _TF_CACHE: dict[str, tuple[float, dict]] = {}
 _TF_TTL = 300.0  # 5 min — intraday bars refresh within the trading session
 
@@ -573,12 +712,32 @@ async def timeframe_analysis(instrument_id: str, force: bool = False) -> dict[st
     yahoo = YahooChartProvider()
 
     async def _bars(rng: str, interval: str) -> list[dict] | None:
+        """Multi-source bars: Yahoo (keyless, dual-host) first; Alpha Vantage
+        monthly for stocks (BSE .BO / US) when Yahoo throttles. Returns None
+        when no source can serve the timeframe — never fabricates."""
         if not ysym:
             return None
         try:
             return await yahoo.fetch_bars(ysym, rng=rng, interval=interval)
         except Exception:
-            return None
+            pass
+        # Yahoo down/rate-limited: AV monthly history as secondary source
+        if interval == "1mo" and not ysym.startswith(("^", "DX-", "GC", "CL")):
+            try:
+                from .data.providers.alphavantage import AlphaVantageProvider
+                av = AlphaVantageProvider()
+                if av.available:
+                    av_sym = ysym
+                    if av_sym.endswith(".NS"):
+                        av_sym = av_sym[:-3]  # AV free covers .BSE, not .NS
+                    if not av_sym.endswith(".BSE") and not ysym.endswith(".NS"):
+                        av_sym = av_sym + ".BSE" if inst.region == "india" else av_sym
+                    rows = await av.fetch_monthly(av_sym)
+                    if rows:
+                        return rows
+            except Exception:
+                pass
+        return None
 
     # daily: prefer the India-first chain (official NSE files), Yahoo fallback
     async def _daily() -> list[dict] | None:
@@ -653,6 +812,128 @@ def _tf_consensus(intraday: dict, daily: dict, monthly: dict) -> dict[str, Any]:
     else:
         verdict, note = "MIXED", "Timeframes disagree — no dominant direction."
     return {"verdict": verdict, "note": note, "labels": labels}
+
+
+_SCANNER_CACHE: dict[str, tuple[float, dict]] = {}
+_SCANNER_TTL = 600.0  # 10 min — the scan fans out over ~50 symbols
+
+
+async def intraday_scanner(limit: int = 8) -> dict[str, Any]:
+    """Scan NIFTY 50 for timeframe conflicts — the reversal-candidates panel.
+
+    A conflict = the intraday direction opposes the daily/monthly trend
+    (e.g. stock rallying today inside a monthly downtrend, or dumping
+    intraday inside a monthly uptrend). These are the setups traders watch
+    for trend exhaustion; for beginners it's the clearest demonstration
+    that different horizons can tell different stories.
+    """
+    hit = _SCANNER_CACHE.get("nifty50")
+    if hit and time.monotonic() - hit[0] < _SCANNER_TTL:
+        return hit[1]
+
+    from .data.providers.yahoo import YahooChartProvider
+    from .engines.timeframes import timeframe_stats
+
+    n50 = await get_store().nifty50_symbols()
+    symbols = sorted(n50)[:60]
+    yahoo = YahooChartProvider()
+
+    async def one(sym: str) -> dict[str, Any] | None:
+        try:
+            intraday_rows = await yahoo.fetch_bars(f"{sym}.NS", rng="2d", interval="5m")
+            daily_rows = await yahoo.fetch_bars(f"{sym}.NS", rng="3mo", interval="1d")
+            intra = timeframe_stats(intraday_rows or [], "intraday")
+            daily = timeframe_stats(daily_rows or [], "daily")
+            if not (intra.get("available") and daily.get("available")):
+                return None
+            return {
+                "symbol": sym,
+                "intraday": intra["label"],
+                "daily": daily["label"],
+                "intraday_ret": intra["metrics"]["recent_return_pct"],
+                "last_close": intra["metrics"]["last_close"],
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*(one(s) for s in symbols), return_exceptions=True)
+    rows = [r for r in results if isinstance(r, dict)]
+
+    conflicts = []
+    for r in rows:
+        i, d = r["intraday"], r["daily"]
+        if i == "NEUTRAL" or d == "NEUTRAL":
+            kind = None
+        elif i != d:
+            kind = ("intraday rally vs daily weakness" if i == "BULLISH"
+                    else "intraday selloff vs daily strength")
+        else:
+            kind = None
+        if kind:
+            conflicts.append({**r, "conflict": kind})
+    conflicts.sort(key=lambda c: -abs(c.get("intraday_ret") or 0))
+
+    out = {
+        "universe": "NIFTY 50 constituents (NSE)",
+        "scanned": len(rows),
+        "aligned": len(rows) - len(conflicts),
+        "conflicts": conflicts[:limit],
+        "note": ("A conflict means today's intraday direction opposes the daily trend — "
+                 "these are trend-exhaustion/reversal candidates, not recommendations. "
+                 "Educational information only."),
+        "disclaimer": DISCLAIMER,
+    }
+    _SCANNER_CACHE["nifty50"] = (time.monotonic(), out)
+    return out
+
+
+async def integrity_audit(sample: int = 25) -> dict[str, Any]:
+    """Audit the served history for correctness: duplicate dates, unsorted
+    bars, stale data, flat-line (pasted) series. The same checks that
+    caught the NSE CDN alias bug — surfaced as a user-facing feature:
+    'we audit our own data before you have to trust it.'
+    """
+    ids = list(REGISTRY.keys())[:sample]
+    problems: list[dict[str, Any]] = []
+    checked = 0
+    newest = ""
+    for iid in ids:
+        try:
+            hist, used_demo = await _history_with_demo(iid)
+            rows = hist.get("rows") or []
+            if not rows:
+                continue
+            checked += 1
+            dates = [r.get("date") for r in rows]
+            if len(dates) != len(set(dates)):
+                problems.append({"instrument": iid, "issue": "duplicate dates",
+                                 "detail": f"{len(dates)} rows, {len(set(dates))} unique"})
+            if dates != sorted(dates):
+                problems.append({"instrument": iid, "issue": "dates not ascending"})
+            closes = [r.get("close") for r in rows if r.get("close") is not None]
+            if len(closes) >= 10:
+                tail = closes[-10:]
+                if max(tail) == min(tail):
+                    problems.append({"instrument": iid, "issue": "flat-line series (suspicious)"})
+            last_date = dates[-1] or ""
+            if last_date > newest:
+                newest = last_date
+            if used_demo:
+                problems.append({"instrument": iid, "issue": "serving demo fallback",
+                                 "detail": "all providers failed for this instrument"})
+        except Exception as exc:
+            problems.append({"instrument": iid, "issue": "history failed", "detail": str(exc)[:120]})
+
+    return {
+        "checked": checked,
+        "problems_found": len(problems),
+        "problems": problems,
+        "newest_data_date": newest,
+        "verdict": "PASS — every series clean" if not problems else f"{len(problems)} issue(s) found",
+        "note": ("Checks: duplicate timestamps, ordering, flat-line series, demo fallback. "
+                 "Run after any data-source change."),
+        "disclaimer": DISCLAIMER,
+    }
 
 
 async def fx_overview() -> dict[str, Any]:

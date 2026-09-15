@@ -127,6 +127,14 @@ input, select { font-family: inherit; }
 .chip.neutral { color: var(--neutral); border-color: color-mix(in srgb, var(--neutral) 40%, transparent); }
 .chip.uncertain { color: var(--uncertain); border-color: color-mix(in srgb, var(--uncertain) 40%, transparent); }
 .chip.demo { color: var(--neutral); }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--pos);
+  box-shadow: 0 0 6px var(--pos); animation: live-pulse 1.8s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 .btn {
   display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px;

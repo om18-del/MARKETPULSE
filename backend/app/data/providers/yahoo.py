@@ -22,7 +22,8 @@ import httpx
 
 from .base import ProviderError
 
-BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")  # dual-host retry
+BASE_URL = "https://{host}/v8/finance/chart/{symbol}"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
@@ -74,12 +75,26 @@ class YahooChartProvider:
         "YYYY-MM-DD HH:MM" for intraday) so the UI chart can consume them
         directly without crashing on duplicates.
         """
-        url = BASE_URL.format(symbol=httpx.QueryParams({"s": symbol})["s"])
+        sym = httpx.QueryParams({"s": symbol})["s"]
         try:
             http = await self._client()
-            resp = await http.get(url, params={"range": rng, "interval": interval})
         except Exception as exc:
             raise ProviderError(f"yahoo network error: {exc}") from exc
+        resp = None
+        last_err: Exception | None = None
+        for host in HOSTS:  # rotate hosts before giving up (rate-limit resilience)
+            url = BASE_URL.format(host=host, symbol=sym)
+            try:
+                resp = await http.get(url, params={"range": rng, "interval": interval})
+                if resp.status_code == 429:
+                    last_err = ProviderError(f"yahoo {host}: HTTP 429 (rate limited)")
+                    continue
+                break
+            except Exception as exc:
+                last_err = exc
+                continue
+        if resp is None:
+            raise ProviderError(f"yahoo network error: {last_err}") from last_err
 
         if resp.status_code != 200:
             raise ProviderError(f"yahoo HTTP {resp.status_code}")

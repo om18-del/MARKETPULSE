@@ -199,8 +199,9 @@ class Aggregator:
         The full NSE + BSE listed universe (~2000 + ~4500 equities) becomes
         searchable/trackable without hardcoding anything:
         * `nse-<symbol>` — NSE path: official NSE bhavcopy history.
-        * `bse-<symbol>` — BSE path: Alpha Vantage daily history
-          (BSE's own endpoints are bot-gated; AV free covers .BO).
+        * `bse-<symbol>` — BSE path: Yahoo (.BO, keyless) daily history
+          with Alpha Vantage as a last-resort fallback (its 25 req/day
+          free quota made it the primary — that cliff is gone).
         """
         if instrument_id.startswith("nse-"):
             sym = instrument_id[4:].upper().replace("%20", " ")
@@ -220,6 +221,7 @@ class Aggregator:
                 id=f"bse-{sym.lower()}", name=name, category="stock",
                 region="india", currency="INR", stooq=None, twelvedata=None,
                 finnhub=None, alphavantage=f"{sym}.BO", nse=None,
+                yahoo=f"{sym}.BO",
                 weight=0.6, keywords=(sym.lower(),),
             )
         return None

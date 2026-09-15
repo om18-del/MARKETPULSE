@@ -36,6 +36,12 @@ export const api = {
   news: (topic = 'india') => get<{ topic: string; aggregate_score: number; method: string; articles: import('./types').NewsArticle[] }>(`/api/news?topic=${topic}`),
   nseMovers: () =>
     get<{ available: boolean; gainers: { symbol: string; name: string; last_price: number; change_pct: number }[]; losers: { symbol: string; name: string; last_price: number; change_pct: number }[]; advances: number | null; declines: number | null; counted: number; reason?: string }>(`/api/nse/movers`),
+  scanner: () =>
+    get<{ universe: string; scanned: number; aligned: number; conflicts: { symbol: string; intraday: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; daily: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; intraday_ret?: number | null; last_close?: number; conflict: string }[]; note?: string; disclaimer?: string }>(`/api/scanner/intraday-conflicts`),
+  integrity: () =>
+    get<{ checked: number; problems_found: number; problems: { instrument: string; issue: string; detail: string }[]; newest_data_date?: string; verdict: string; note?: string }>(`/api/integrity`),
+  watchlistQuotes: (ids: string[]) =>
+    post<{ requested: number; found: number; quotes: { id: string; name: string; currency: string; price: number; change_pct: number; data_date: string; demo: boolean }[]; disclaimer: string }>('/api/watchlist/quotes', { ids }),
   chat: (question: string, instrument_id?: string) =>
     post<{ answer: string; generated_by: string }>('/api/chat', { question, instrument_id }),
   assistant: (mode: 'qa' | 'explain', text: string, context?: Record<string, unknown>) =>

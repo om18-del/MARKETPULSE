@@ -132,6 +132,7 @@ export interface Analysis {
 export interface AssetDetail {
   instrument: Instrument
   quote: { price: number; change_pct: number; provider: string; demo: boolean } | null
+  delayed_live?: { price: number; change_pct: number; bar_time?: string | number; note: string } | null
   rows: { date: string; open: number | null; high: number | null; low: number | null; close: number; volume: number | null }[]
   spark: number[]
   data_mode: 'live' | 'demo'
