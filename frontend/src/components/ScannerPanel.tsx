@@ -53,6 +53,7 @@ export function ScannerPanel() {
                 <Link
                   key={c.symbol}
                   to={`/asset/nse-${c.symbol.toLowerCase()}`}
+                  className="scan-row"
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--card-border)' }}
                 >
                   <span style={{ fontWeight: 700, width: 110 }}>{c.symbol}</span>
@@ -63,8 +64,8 @@ export function ScannerPanel() {
                   <span className={`chip ${c.daily === 'BULLISH' ? 'pos' : 'neg'}`}>
                     daily {c.daily.toLowerCase()}
                   </span>
-                  <span className="faint" style={{ marginLeft: 'auto', fontSize: 12.5 }}>{c.conflict}</span>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: (c.intraday_ret ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)', width: 64, textAlign: 'right' }}>
+                  <span className="faint scan-note" style={{ marginLeft: 'auto', fontSize: 12.5 }}>{c.conflict}</span>
+                  <span className="scan-pct" style={{ fontWeight: 700, fontSize: 13, color: (c.intraday_ret ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)', width: 64, textAlign: 'right' }}>
                     {(c.intraday_ret ?? 0) >= 0 ? '+' : ''}{c.intraday_ret?.toFixed(2)}%
                   </span>
                 </Link>
