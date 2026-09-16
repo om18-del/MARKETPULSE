@@ -25,9 +25,9 @@ formatted values like "-3.13%" or "1.03×"; never derive or compute new figures.
 - Never mention a metric that is absent from the JSON (no VIX, breadth, or \
 macro numbers unless they are literally in the payload). If a section's data is \
 missing, write one short honest sentence saying so — never improvise.
-- Build the final section from the "what_would_change_this_read" list: restate each \
-list item and add its plain-English meaning. Do not omit an item, do not add \
-external conditions.
+- Build the final section from the "what_would_change_this_read" list: quote each \
+list item's exact words first, then add its plain-English meaning. Do not omit an \
+item, do not paraphrase the item itself, do not add external conditions.
 - Use the "cross_asset" drivers (correlations) for the Cross-Asset Drivers section; \
 if the list is empty, say the asset has no significant macro-driver relationships \
 right now and move on.
@@ -112,23 +112,36 @@ async def build_thesis(gemini, features: dict[str, Any]) -> dict[str, Any]:
         # mid-sentence (the #1 failure PRISM's audit found).
         text = await gemini.generate(prompt, ttl=300, temperature=0.3, max_tokens=1600)
         if _mentions_forbidden(text):
-            text = fallback + "\n\n(Redacted and replaced: the model attempted advice.)"
+            return {"text": fallback + "\n\n(Redacted and replaced: the model attempted advice.)",
+                    "generated_by": "deterministic-template (advice guard)"}
         # Format enforcement: the thesis must START at "Structural Read:" —
         # any preamble the model adds is stripped; no label at all = unusable.
         enforced = _enforce_thesis_format(text)
-        if enforced is None:
-            return {"text": fallback,
-                    "generated_by": "deterministic-template (format guard)"}
-        text = _enforce_word_cap(enforced)
-        bad = _grounding_violations(text, payload)
-        if not bad and wwctr:
-            # The final section must restate every "what would change" item
-            # (audit rec: verbatim match so the read can't drift from the JSON).
-            missing = _wwctr_missing_items(text, wwctr)
+        text = _enforce_word_cap(enforced) if enforced is not None else ""
+        bad = _grounding_violations(text, payload) if text else ["unparseable"]
+        missing = _wwctr_missing_items(text, wwctr) if (text and wwctr) else []
+        if bad or missing:
+            # One guided retry: name the exact failures so the model can fix
+            # them — models paraphrase naturally, and a silent downgrade to
+            # the template wastes a perfectly good (just imprecise) thesis.
+            fix = ("RETRY — your previous draft violated the rules. ")
+            if bad:
+                fix += f"Remove or correct these numbers — they are NOT in the JSON: {bad[:4]}. "
             if missing:
-                return {"text": fallback,
-                        "generated_by": "deterministic-template (change-read guard)",
-                        "missing_change_items": missing}
+                fix += ("Restate each item below VERBATIM (exact words; you may add "
+                        f"explanation after each): {missing[:2]}. ")
+            fix += "Rewrite the complete four-section thesis."
+            text2 = await gemini.generate(prompt + "\n\n" + fix, ttl=300,
+                                          temperature=0.2, max_tokens=1600)
+            enforced2 = _enforce_thesis_format(text2)
+            if enforced2 is not None:
+                text = _enforce_word_cap(enforced2)
+                bad = _grounding_violations(text, payload)
+                missing = _wwctr_missing_items(text, wwctr) if wwctr else []
+        if missing:
+            return {"text": fallback,
+                    "generated_by": "deterministic-template (change-read guard)",
+                    "missing_change_items": missing}
         if bad:
             # The model quoted numbers that exist nowhere in the payload —
             # serve the deterministic template, which is grounded by design.
