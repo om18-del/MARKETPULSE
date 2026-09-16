@@ -1,26 +1,27 @@
-# Render.com blueprint — deploys the FastAPI backend as a free web service.
-# In the Render dashboard: New -> Blueprint -> point at this repo, or create
-# manually with these values.
+# Render.com blueprint for the MarketPulse backend API.
+# Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
+# The frontend deploys separately on Vercel (see frontend/vercel.json).
 services:
   - type: web
     name: marketpulse-api
     runtime: python
+    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
-      - key: GEMINI_API_KEY
-        sync: false        # set in dashboard — never commit
-      - key: GEMINI_MODEL
-        value: gemini-3.6-flash
-      - key: TWELVEDATA_API_KEY
-        sync: false
-      - key: FINNHUB_API_KEY
-        sync: false
-      - key: ALPHAVANTAGE_API_KEY
-        sync: false
-      - key: CORS_ORIGINS
-        value: http://localhost:5173,https://marketpulse-frontend.vercel.app
       - key: PYTHON_VERSION
-        value: "3.12.6"
+        value: "3.12"
+      # Secrets: set these in the Render dashboard (Environment tab), never here.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PRISMTRACE_API_KEY
+        sync: false
+      - key: PRISMTRACE_PROJECT_ID
+        sync: false
+      # After Vercel assigns the frontend URL, add it here as CORS_ORIGINS,
+      # e.g. https://marketpulse.vercel.app,http://localhost:5173
+      - key: CORS_ORIGINS
+        sync: false
