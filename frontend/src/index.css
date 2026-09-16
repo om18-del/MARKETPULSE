@@ -90,9 +90,48 @@ input, select { font-family: inherit; }
   color: var(--text-dim); border-radius: 10px; padding: 7px 10px; font-size: 14px;
 }
 @media (max-width: 860px) {
-  .nav-links { display: none; }
-  .nav-links.open { display: flex; flex-direction: column; width: 100%; order: 3; padding-top: 8px; }
   .nav-inner { flex-wrap: wrap; }
+}
+
+/* ---------- mobile (≤720px): phones only — desktop is untouched ---------- */
+.nav-burger { display: none; margin-left: 0 !important; }
+@media (max-width: 720px) {
+  .nav-burger { display: inline-flex; }
+  .nav-inner { padding: 10px 12px; gap: 6px; flex-wrap: wrap; }
+  .brand { font-size: 16px; margin-right: 4px; }
+  .brand-pulse { width: 26px; height: 26px; border-radius: 8px; }
+  .theme-btn { margin-left: 0; padding: 8px 9px; }
+
+  /* dropdown: full-width panel below the bar, independent of nav-inner flow */
+  .nav-links { display: none; }
+  .nav-links.open {
+    display: flex; flex-direction: column;
+    position: absolute; left: 10px; right: 10px; top: 100%;
+    margin-top: 6px; padding: 8px;
+    background: var(--bg-soft); border: 1px solid var(--card-border);
+    border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .nav-links.open .nav-link { padding: 12px 14px; font-size: 15px; border-radius: 10px; }
+  .nav-links.open .nav-link.active { background: var(--card); }
+
+  .shell { padding: 0 12px 84px; }
+  .page-title { font-size: 21px; margin-top: 18px; }
+
+  /* the gauge hero: stack gauge above the text instead of clipping it */
+  .section .card[style*='minmax(240px, 340px)'] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .section .card[style*='minmax(240px, 340px)'] > div:first-child {
+    order: -1;
+  }
+
+  /* PA FAB: thumb-reach corner, and never cover the disclaimer bar */
+  .pa-fab { right: 14px; bottom: 14px; width: 50px; height: 50px; }
+  .pa-drawer { right: 8px; left: 8px; bottom: 76px; width: auto; height: min(560px, 68vh); }
+
+  /* wide tables scroll horizontally instead of bursting the card */
+  .tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
 .disclaimer-bar {

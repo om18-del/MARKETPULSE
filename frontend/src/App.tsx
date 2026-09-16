@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, BarChart3, BookMarked, BookOpen, FlaskConical, Globe2, Info, Moon, Newspaper, Search, Star, Sun } from 'lucide-react'
+import { Activity, BarChart3, BookMarked, BookOpen, FlaskConical, Globe2, Info, Menu, Moon, Newspaper, Search, Star, Sun, X } from 'lucide-react'
 import { OverviewPage } from './pages/Overview'
 import { AssetDetailPage } from './pages/AssetDetail'
 import { ComparePage } from './pages/Compare'
@@ -37,11 +37,13 @@ export default function App() {
   )
   const [explainText, setExplainText] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
 
-  // Close the search overlay whenever the user navigates to an asset.
+  // Close the search overlay and the mobile menu whenever the user navigates.
   useEffect(() => {
     setSearchOpen(false)
+    setMenuOpen(false)
   }, [location.pathname])
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function App() {
             <span className="brand-pulse"><Activity size={17} /></span>
             MarketPulse
           </Link>
-          <div className="nav-links">
+          <div className={`nav-links ${menuOpen ? 'open' : ''}`}>
             {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 {n.label}
@@ -88,6 +90,14 @@ export default function App() {
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
+            <button
+              className="theme-btn nav-burger"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+            >
+              {menuOpen ? <X size={16} /> : <Menu size={16} />}
             </button>
           </div>
         </div>
