@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "$comment": "All-in-Vercel: static frontend + FastAPI as the /api/* serverless function. Set VITE_API_BASE_URL unset/empty so the frontend calls same-origin /api. Secrets go in Vercel env vars.",
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
   "rewrites": [
