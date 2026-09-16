@@ -133,15 +133,19 @@ caches — not by any paid plan. How to raise throughput as usage grows:
 
 ## ☁️ Deploy to the web (free)
 
-**Recommended: Vercel (frontend) + Render (backend)**
+**Option A — All-in on Vercel (simplest, one project, one URL):**
 
-1. **Backend → Render:** New → Blueprint → select this repo (uses `render.yaml`). Add env vars: `GEMINI_API_KEY` (+ optional provider keys), set `CORS_ORIGINS` to your Vercel URL. Note the `https://…onrender.com` URL.
-2. **Frontend → Vercel:** New Project → import repo → **Root Directory: `frontend`**. Env var: `VITE_API_BASE_URL=https://<your-backend>.onrender.com`. Deploy.
+1. Push this repo to GitHub → Vercel → **New Project → Import repo** (root directory = repo root; `vercel.json` handles everything).
+2. **Environment Variables** (Project → Settings): `GEMINI_API_KEY` (required for AI), plus optional `PRISMTRACE_API_KEY`, `PRISMTRACE_PROJECT_ID`, `TWELVEDATA_API_KEY`, `ALPHAVANTAGE_API_KEY`. **Leave `VITE_API_BASE_URL` unset** — the frontend then calls same-origin `/api`, no CORS needed.
+3. Deploy. `/` serves the app; `/api/*` runs FastAPI as a Python serverless function (`api/index.py`, deps from `api/requirements.txt`). Verify `https://<you>.vercel.app/api/health` returns `"status":"ok"`.
+
+**Option B — Split: Vercel (frontend) + Render (backend)** — better for always-on caches:
+
+1. **Backend → Render:** New → Blueprint → select this repo (uses `render.yaml`). Add env vars in the dashboard: `GEMINI_API_KEY`, `CORS_ORIGINS` (start with `http://localhost:5173`), optional PRISM keys. Note the `https://…onrender.com` URL.
+2. **Frontend → Vercel:** New Project → import repo → **Root Directory: `frontend`** (uses `frontend/vercel.json`). Env var: `VITE_API_BASE_URL=https://<your-backend>.onrender.com`. Deploy.
 3. Update Render's `CORS_ORIGINS` to include your final Vercel URL → redeploy.
 
-**All-in-Vercel alternative:** `api/index.py` + `vercel.json` ship the FastAPI app as a serverless function (cold starts reset caches — fine for light demos). Add a Python requirements step for the api (`backend/requirements.txt`).
-
-**Honest deployment caveats:** Indian data comes from official NSE archive files (keyless, no bot-gate on those endpoints); Stooq can still block datacenter IPs for the US/global instruments (code handles its proof-of-work challenge, but IP reputation can deny — then clearly-labeled Demo Mode covers those assets); public traffic can exhaust Gemini's free RPM (caching + keyword fallbacks handle it).
+**Honest deployment caveats:** all core data is keyless (NSE archive files, Yahoo, ECB Frankfurter) and works from cloud IPs in testing; Stooq can still block datacenter IPs for a few global instruments (clearly-labeled Demo Mode covers those assets); serverless cold starts reset caches (Option A) so the first overview load takes a few extra seconds; public traffic can exhaust Gemini's free RPM (caching + per-IP throttle + keyword fallbacks handle it).
 
 ## 🎤 Hackathon demo script (2 minutes)
 

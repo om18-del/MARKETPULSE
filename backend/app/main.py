@@ -61,7 +61,11 @@ async def root() -> dict:
 
 
 if __name__ == "__main__":
+    import os
+
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=True)
+    # Cloud hosts (Render/Railway/Fly) inject PORT; it wins over .env.
+    port = int(os.environ.get("PORT", settings.port))
+    uvicorn.run("app.main:app", host=settings.host, port=port, reload=False)

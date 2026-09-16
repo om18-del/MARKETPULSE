@@ -629,7 +629,8 @@ async def live_quotes() -> dict[str, Any]:
 
     from .data.providers.yahoo import YahooChartProvider
     yahoo = YahooChartProvider()
-    prev_good: dict = (_LIVE_QUOTES_CACHE.get("last_good") or {}).get("quotes", {})
+    lg = _LIVE_QUOTES_CACHE.get("last_good")  # (monotonic, payload) tuple
+    prev_good: dict = lg[1].get("quotes", {}) if lg else {}
     sem = asyncio.Semaphore(8)  # gentle on the upstream: 8 concurrent max
 
     async def _one(inst: Instrument) -> tuple[str, dict | None]:
