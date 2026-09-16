@@ -655,7 +655,7 @@ async def live_quotes() -> dict[str, Any]:
             return inst.id, prev_good.get(inst.id)
 
     results = await asyncio.gather(*(_one(i) for i in ALL.values()))
-    quotes = {qid: q for r in results if r is not None and q is not None for qid, q in [r]}
+    quotes = {qid: q for qid, q in results if q is not None}
     out = {"quotes": quotes, "as_of": datetime.now(timezone.utc).isoformat(), "count": len(quotes)}
     _LIVE_QUOTES_CACHE["all"] = (time.monotonic(), out)
     _LIVE_QUOTES_CACHE["last_good"] = (time.monotonic(), out)
