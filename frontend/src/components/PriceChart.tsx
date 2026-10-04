@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, AreaSeries, type IChartApi, type UTCTimestamp, type Time } from 'lightweight-charts'
 import { chartChrome, seriesColors } from '../themeTokens'
+import { clampZoomToData } from '../chartZoom'
 
 type Bar = { time: string; close: number }
 
@@ -166,6 +167,7 @@ export function PriceChart({
     })
     series.setData(points)
     chart.timeScale().fitContent()
+    clampZoomToData(chart, points.length)
 
     return () => {
       chart.remove()
