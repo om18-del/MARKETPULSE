@@ -597,12 +597,20 @@ async def watchlist_quotes(instrument_ids: list[str]) -> dict[str, Any]:
                 return None
             closes = [float(r["close"]) for r in rows]
             prev = closes[-2]
+            # Mirrors the overview grid entry so both surfaces can render the
+            # same card component (spark, verdict chip and score included).
+            assessment = regime_assess(rows, news_sentiment=None, instrument_name=inst.name)
             return {
                 "id": inst.id,
                 "name": inst.name,
                 "currency": inst.currency,
+                "category": inst.category,
+                "region": inst.region,
                 "price": closes[-1],
                 "change_pct": round((closes[-1] / prev - 1) * 100, 2) if prev else 0.0,
+                "spark": closes[-30:],
+                "verdict": assessment["verdict"],
+                "score": assessment["score_0_100"],
                 "data_date": rows[-1]["date"],
                 "demo": used_demo,
             }

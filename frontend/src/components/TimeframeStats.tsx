@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, AreaSeries } from 'lightweight-charts'
 import { TrendingUp, TrendingDown, Minus, Clock, CalendarDays, Zap, Activity } from 'lucide-react'
 import { chartChrome, seriesColors } from '../themeTokens'
+import { clampZoomToData } from '../chartZoom'
 
 interface TFFactor {
   name: string
@@ -120,6 +121,7 @@ function TFChart({ bars, height = 260 }: { bars: { time: string; close: number }
     })
     series.setData(points as never)
     chart.timeScale().fitContent()
+    clampZoomToData(chart, points.length)
     return () => { chart.remove() }
   }, [points, height])
 

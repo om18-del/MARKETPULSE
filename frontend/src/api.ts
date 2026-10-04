@@ -1,5 +1,7 @@
 /** Typed API client. Dev: same-origin via Vite proxy. Prod: VITE_API_BASE_URL. */
 
+import type { GridEntry } from './types'
+
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
 async function get<T>(path: string): Promise<T> {
@@ -41,7 +43,7 @@ export const api = {
   integrity: () =>
     get<{ checked: number; problems_found: number; problems: { instrument: string; issue: string; detail: string }[]; newest_data_date?: string; verdict: string; note?: string }>(`/api/integrity`),
   watchlistQuotes: (ids: string[]) =>
-    post<{ requested: number; found: number; quotes: { id: string; name: string; currency: string; price: number; change_pct: number; data_date: string; demo: boolean }[]; disclaimer: string }>('/api/watchlist/quotes', { ids }),
+    post<{ requested: number; found: number; quotes: (GridEntry & { data_date: string })[]; disclaimer: string }>('/api/watchlist/quotes', { ids }),
   chat: (question: string, instrument_id?: string) =>
     post<{ answer: string; generated_by: string }>('/api/chat', { question, instrument_id }),
   assistant: (mode: 'qa' | 'explain', text: string, context?: Record<string, unknown>) =>

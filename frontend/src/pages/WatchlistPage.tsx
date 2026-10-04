@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Star, Trash2, ArrowUpRight, AlertTriangle, StarOff } from 'lucide-react'
+import { Star, ArrowUpRight, AlertTriangle, StarOff } from 'lucide-react'
 import { api, DISCLAIMER } from '../api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { CardSkeleton } from '../components/Skeletons'
 import { EmptyState } from '../components/EmptyState'
+import { IndexCard } from '../components/IndexCard'
+import type { GridEntry } from '../types'
 
-type Quote = {
-  id: string
-  name: string
-  currency: string
-  price: number
-  change_pct: number
-  data_date: string
-  demo: boolean
-}
+type Quote = GridEntry & { data_date: string }
 
 const HINTS = ['nse-reliance', 'nse-tcs', 'nifty50', 'sensex', 'niftybank', 'usdinr']
 
@@ -105,62 +99,16 @@ export function WatchlistPage() {
           </EmptyState>
         </div>
       ) : (
-        <div className="card" style={{ marginTop: 16, overflow: 'hidden' }}>
-          <table className="tbl watchlist-tbl" style={{ fontSize: 14 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--text-faint)', fontSize: 12 }}>
-                <th style={{ padding: '10px 14px' }}>Asset</th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>Close</th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>Change</th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>Data date</th>
-                <th style={{ padding: '10px 14px' }} aria-label="remove" />
-              </tr>
-            </thead>
-            <tbody>
-              {quotes.map((q) => {
-                const up = q.change_pct >= 0
-                return (
-                  <tr key={q.id} style={{ borderTop: '1px solid var(--card-border)' }}>
-                    <td style={{ padding: '11px 14px' }}>
-                      <Link to={`/asset/${q.id}`} style={{ color: 'var(--text)', fontWeight: 600 }}>
-                        {q.name}
-                      </Link>
-                      {q.demo ? <span className="chip demo" style={{ marginLeft: 8 }}>demo</span> : null}
-                    </td>
-                    <td className="num" style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700 }}>
-                      {q.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{q.currency}</span>
-                    </td>
-                    <td
-                      className="num"
-                      style={{
-                        padding: '11px 14px',
-                        textAlign: 'right',
-                        color: up ? 'var(--pos)' : 'var(--neg)',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {up ? '▲' : '▼'} {Math.abs(q.change_pct).toFixed(2)}%
-                    </td>
-                    <td className="muted" style={{ padding: '11px 14px', textAlign: 'right', fontSize: 12.5 }}>
-                      {q.data_date}
-                    </td>
-                    <td style={{ padding: '11px 14px', textAlign: 'right' }}>
-                      <button
-                        className="btn ghost"
-                        style={{ padding: '4px 8px' }}
-                        onClick={() => watchlist.toggle(q.id)}
-                        aria-label={`Remove ${q.name} from watchlist`}
-                        title="Remove"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div className="grid cols-4" style={{ marginTop: 16 }}>
+          {quotes.map((q, i) => (
+            <IndexCard
+              key={q.id}
+              e={q}
+              index={i}
+              watched
+              onToggleWatch={(id) => watchlist.toggle(id)}
+            />
+          ))}
         </div>
       )}
 

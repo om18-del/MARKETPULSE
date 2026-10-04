@@ -5,6 +5,7 @@ import { GitCompare, Plus, Search, X } from 'lucide-react'
 import { api } from '../api'
 import { VerdictChip } from '../components/Verdict'
 import { chartChrome, compareSeriesColors } from '../themeTokens'
+import { clampZoomToData } from '../chartZoom'
 import type { Analysis, AssetDetail, Instrument } from '../types'
 
 /** Resolved from CSS tokens so the series palette follows the active theme. */
@@ -175,6 +176,8 @@ function CompareChart({ series, colors }: { series: Record<string, { time: strin
       s.setData(points)
     })
     chart.timeScale().fitContent()
+    const span = Math.max(...Object.values(series).map((s) => s.length), 0)
+    if (span >= 2) clampZoomToData(chart, span)
     return () => chart.remove()
   }, [series, colors])
   return <div ref={ref} style={{ width: '100%' }} />
