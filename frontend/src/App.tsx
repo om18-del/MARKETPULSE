@@ -48,6 +48,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0a0f13' : '#f2f6f3')
     localStorage.setItem('marketpulse.theme', theme)
   }, [theme])
 
@@ -65,29 +66,37 @@ export default function App() {
       <nav className="navbar">
         <div className="nav-inner">
           <Link to="/" className="brand">
-            <span className="brand-pulse"><Activity size={17} /></span>
-            MarketPulse
+            <span className="brand-pulse"><Activity size={18} strokeWidth={2.4} /></span>
+            <span className="brand-copy">
+              <span className="brand-wordmark">Market<span>Pulse</span></span>
+              <span className="brand-caption">MARKET INTELLIGENCE</span>
+            </span>
           </Link>
           <div className={`nav-links ${menuOpen ? 'open' : ''}`}>
             {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                {n.label}
+                <n.icon size={14} strokeWidth={1.9} aria-hidden="true" />
+                <span>{n.label}</span>
               </NavLink>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="topbar-actions">
             <button
-              className="theme-btn"
+              className="theme-btn search-trigger"
               onClick={() => setSearchOpen((v) => !v)}
-              aria-label="Search stocks"
+              aria-label="Search stocks and indices"
+              aria-expanded={searchOpen}
               title="Search (Ctrl K)"
             >
               <Search size={15} />
+              <span className="search-trigger-label">Search</span>
+              <kbd>Ctrl K</kbd>
             </button>
             <button
               className="theme-btn"
               onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-              aria-label="Toggle theme"
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
             >
               {theme === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
             </button>
