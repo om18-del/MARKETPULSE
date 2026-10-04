@@ -81,10 +81,14 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
         {(() => {
           const live = livePrice
-          const close = d.quote?.price
-          const shown = live ?? d.delayed_live?.price ?? close
-          const pct = live != null && close ? (live / close - 1) * 100
-            : (d.delayed_live?.change_pct ?? d.quote?.change_pct ?? null)
+          const shown = live ?? d.delayed_live?.price ?? d.quote?.price
+          // Always measure against the PREVIOUS session's close so this page
+          // agrees with the overview card. `prev_close` is now supplied by the
+          // API; fall back to the pre-existing change_pct if it is absent.
+          const prevClose = d.delayed_live?.prev_close ?? d.quote?.prev_close ?? null
+          const pct =
+            live != null && prevClose ? ((live / prevClose - 1) * 100)
+            : d.delayed_live?.change_pct ?? d.quote?.change_pct ?? null
           if (shown == null) return null
           const pos = (pct ?? 0) >= 0
           return (
@@ -105,9 +109,9 @@ export function AssetDetailPage({ onExplain }: { onExplain: (t: string) => void 
             </>
           )
         })()}
-        {d.quote ? (
+        {d.quote?.prev_close != null ? (
           <span className="muted" style={{ fontSize: 13 }}>
-            prev close {d.quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })} {d.instrument.currency}
+            prev close {d.quote.prev_close.toLocaleString(undefined, { maximumFractionDigits: 2 })} {d.instrument.currency}
           </span>
         ) : null}
       </div>
