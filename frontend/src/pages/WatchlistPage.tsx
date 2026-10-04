@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Star, Trash2, ArrowUpRight } from 'lucide-react'
+import { Star, Trash2, ArrowUpRight, AlertTriangle, StarOff } from 'lucide-react'
 import { api, DISCLAIMER } from '../api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { CardSkeleton } from '../components/Skeletons'
+import { EmptyState } from '../components/EmptyState'
 
 type Quote = {
   id: string
@@ -82,19 +83,30 @@ export function WatchlistPage() {
       </p>
 
       {err ? (
-        <div className="card" style={{ marginTop: 16, padding: 16, borderColor: 'var(--neg)' }}>
-          Couldn't load quotes: {err}
+        <div className="err-box" style={{ marginTop: 16 }} role="alert">
+          <span className="err-box-icon"><AlertTriangle size={18} /></span>
+          <span>Couldn&rsquo;t load quotes: {err}</span>
         </div>
       ) : quotes === null ? (
         <CardSkeleton height={320} />
       ) : quotes.length === 0 ? (
-        <div className="card" style={{ marginTop: 16, padding: 16 }}>
-          None of the saved assets could be resolved — they may have been renamed. Remove them and
-          re-add from search.
+        <div style={{ marginTop: 16 }}>
+          <EmptyState
+            icon={<StarOff size={20} />}
+            title="None of your saved assets resolved"
+            action={
+              <button className="btn primary" onClick={() => (window.location.href = '/')}>
+                Find assets to add
+              </button>
+            }
+          >
+            The symbols in your watchlist may have been renamed or delisted. Browse the overview and
+            add them again.
+          </EmptyState>
         </div>
       ) : (
         <div className="card" style={{ marginTop: 16, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <table className="tbl watchlist-tbl" style={{ fontSize: 14 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--text-faint)', fontSize: 12 }}>
                 <th style={{ padding: '10px 14px' }}>Asset</th>

@@ -4,9 +4,11 @@ import { createChart, ColorType, LineSeries } from 'lightweight-charts'
 import { GitCompare, Plus, Search, X } from 'lucide-react'
 import { api } from '../api'
 import { VerdictChip } from '../components/Verdict'
+import { chartChrome, compareSeriesColors } from '../themeTokens'
 import type { Analysis, AssetDetail, Instrument } from '../types'
 
-const COLORS = ['#22d3ee', '#8b5cf6', '#fbbf24', '#34d399']
+/** Resolved from CSS tokens so the series palette follows the active theme. */
+const COLORS = compareSeriesColors()
 
 export function ComparePage() {
   const [params, setParams] = useSearchParams()
@@ -150,16 +152,18 @@ function CompareChart({ series, colors }: { series: Record<string, { time: strin
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!ref.current) return
+    const chrome = chartChrome()
     const chart = createChart(ref.current, {
       height: 340,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#93a0b8',
+        textColor: chrome.text,
+        fontFamily: chrome.font,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: 'rgba(147,160,184,0.08)' }, horzLines: { color: 'rgba(147,160,184,0.08)' } },
-      timeScale: { borderColor: 'rgba(147,160,184,0.15)' },
-      rightPriceScale: { borderColor: 'rgba(147,160,184,0.15)' },
+      grid: { vertLines: { color: chrome.grid }, horzLines: { color: chrome.grid } },
+      timeScale: { borderColor: chrome.border },
+      rightPriceScale: { borderColor: chrome.border },
     })
     Object.values(series).forEach((points, i) => {
       const s = chart.addSeries(LineSeries, {

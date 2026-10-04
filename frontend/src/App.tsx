@@ -18,6 +18,7 @@ import { OnboardingTour } from './components/OnboardingTour'
 import { SearchBar } from './components/SearchBar'
 import { DisclaimerBar, DisclaimerModal } from './components/Disclaimer'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { usePrefersReducedMotion } from './hooks/useReducedMotion'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: Globe2 },
@@ -39,6 +40,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
+  const reduceMotion = usePrefersReducedMotion()
 
   // Close the search overlay and the mobile menu whenever the user navigates.
   useEffect(() => {
@@ -52,6 +54,15 @@ export default function App() {
     localStorage.setItem('marketpulse.theme', theme)
   }, [theme])
 
+  // Keyboard users should land at the top of the new page after a client-side
+  // route change, otherwise focus stays on the nav link they just pressed.
+  useEffect(() => {
+    const main = document.getElementById('main-content')
+    if (!main) return
+    main.focus({ preventScroll: true })
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [location.pathname])
+
   // PA explain channel: pages call onExplain(text)
   useEffect(() => {
     if (!explainText) return
@@ -61,6 +72,7 @@ export default function App() {
 
   return (
     <div className="app-bg">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <DisclaimerModal />
       <DisclaimerBar />
       <nav className="navbar">
@@ -115,11 +127,13 @@ export default function App() {
       <AnimatePresence mode="wait">
         <motion.main
           key={location.pathname}
+          id="main-content"
+          tabIndex={-1}
           className="shell"
-          initial={{ opacity: 0, y: 10 }}
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.22 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+          transition={{ duration: reduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
         >
           <ErrorBoundary name="Page">
             <Routes location={location}>

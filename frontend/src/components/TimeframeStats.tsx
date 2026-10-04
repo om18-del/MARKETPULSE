@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, AreaSeries } from 'lightweight-charts'
 import { TrendingUp, TrendingDown, Minus, Clock, CalendarDays, Zap, Activity } from 'lucide-react'
+import { chartChrome, seriesColors } from '../themeTokens'
 
 interface TFFactor {
   name: string
@@ -88,30 +89,32 @@ function TFChart({ bars, height = 260 }: { bars: { time: string; close: number }
 
   useEffect(() => {
     if (!ref.current || points.length < 2) return
+    const chrome = chartChrome()
     const chart = createChart(ref.current, {
       height,
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#93a0b8',
-        fontFamily: 'Inter, system-ui, sans-serif',
+        textColor: chrome.text,
+        fontFamily: chrome.font,
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: 'rgba(147,160,184,0.08)' },
-        horzLines: { color: 'rgba(147,160,184,0.08)' },
+        vertLines: { color: chrome.grid },
+        horzLines: { color: chrome.grid },
       },
-      rightPriceScale: { borderColor: 'rgba(147,160,184,0.15)' },
-      timeScale: { borderColor: 'rgba(147,160,184,0.15)', timeVisible: true },
+      rightPriceScale: { borderColor: chrome.border },
+      timeScale: { borderColor: chrome.border, timeVisible: true },
       crosshair: { mode: 0 },
     })
     const first = points[0].value
     const lastP = points[points.length - 1].value
     const up = lastP >= first
+    const sc = seriesColors(up)
     const series = chart.addSeries(AreaSeries, {
-      lineColor: up ? '#34d399' : '#fb7185',
-      topColor: up ? 'rgba(52,211,153,0.30)' : 'rgba(251,113,133,0.30)',
-      bottomColor: 'rgba(0,0,0,0.0)',
+      lineColor: sc.line,
+      topColor: sc.top,
+      bottomColor: sc.bottom,
       lineWidth: 2,
       priceLineVisible: false,
     })
