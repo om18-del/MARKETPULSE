@@ -21,6 +21,11 @@ OVERBOUGHT_RSI, OVERSOLD_RSI = 70, 30
 
 VERDICTS = ("bullish", "bearish", "neutral", "uncertain")
 
+# Instruments whose value rises when the market is *worse*. They are scored
+# directionally like everything else, then sign-flipped in global_blend so
+# their contribution to the global read points the right way.
+FEAR_GAUGE_IDS = frozenset({"vix"})
+
 
 def _clamp(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
@@ -28,7 +33,6 @@ def _clamp(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
 
 def _trend_factor(rows: list[Row], close: float) -> dict[str, Any]:
     parts: list[dict[str, Any]] = []
-    score = 0.0
     for label, period in (("SMA20", 20), ("SMA50", 50), ("SMA200", 200)):
         v = ind.sma([r["close"] for r in rows], period)
         if v is None:
@@ -36,19 +40,28 @@ def _trend_factor(rows: list[Row], close: float) -> dict[str, Any]:
         pct_diff = (close / v - 1) * 100
         sub = _clamp(pct_diff / 5)  # ±5% from SMA saturates the sub-score
         parts.append({"name": f"price vs {label.lower()}", "value": f"{pct_diff:+.2f}%",
-                      "rule": f"±5% from {label} saturates", "weight": 1 / 3,
+                      "rule": f"±5% from {label} saturates",
                       "sub_score": sub,
                       "meaning": ("above" if pct_diff > 0 else "below") + f" {label}"})
-        score += sub / 3
     m = ind.macd(rows)
     if m:
         hist = m["histogram"]
         sub = _clamp(hist / (close * 0.01))  # ±1% of price saturates
         parts.append({"name": "MACD histogram", "value": f"{hist:.2f}",
-                      "rule": "±1% of price saturates", "weight": 1 / 3,
+                      "rule": "±1% of price saturates",
                       "sub_score": sub,
                       "meaning": "bullish cross" if hist > 0 else "bearish cross"})
-        score += sub / 3
+
+    # Sub-factor weights must sum to exactly 1.0 so the Evidence panel does
+    # not display weights that add up to more than the whole factor. Missing
+    # sub-factors (e.g. sma200 on short histories) are dropped and the
+    # remainder share the full weight, rather than silently damping the score.
+    n = len(parts)
+    share = 1.0 / n if n else 0.0
+    score = 0.0
+    for p in parts:
+        p["weight"] = share
+        score += p["sub_score"] * share
     return {"score": _clamp(score), "parts": parts}
 
 
@@ -174,7 +187,8 @@ def assess(rows: list[Row],
     if rv is not None and rv > UNCERTAINTY_VOL_THRESHOLD:
         uncertainty_damp = min((rv - UNCERTAINTY_VOL_THRESHOLD) / 40, 0.5)
 
-    score100 = round((raw + 1) / 2 * 100, 1)  # [-1,1] -> [0,100]
+    # news can push |raw| past 1, so bound the published score to 0-100
+    score100 = round(min(100.0, max(0.0, (raw + 1) / 2 * 100)), 1)
     direction_confidence = round(100 * (1 - uncertainty_damp), 1)
 
     if abs(raw) < 0.12 and uncertainty_damp < 0.2:
@@ -265,6 +279,12 @@ def global_blend(assessments: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         w = a.get("instrument_weight", 1.0)
         s = (a["score_0_100"] - 50) / 50  # back to [-1, 1]
+        # The VIX is a fear gauge, not a directional asset: the regime engine
+        # reads its rising value as "bullish" (price going up), which is the
+        # opposite of its meaning. Invert its sign here so a volatility spike
+        # drags the global read DOWN instead of pushing it up.
+        if a.get("instrument_id") in FEAR_GAUGE_IDS:
+            s = -s
         contributions += s * w
         total_w += w
         used.append(a)
@@ -280,7 +300,7 @@ def global_blend(assessments: list[dict[str, Any]]) -> dict[str, Any]:
         verdict = "bullish"
     else:
         verdict = "bearish"
-    vix_score = next((a["score_0_100"] for a in used if a.get("instrument_id") == "vix"), None)
+    vix_score = next((a["score_0_100"] for a in used if a.get("instrument_id") in FEAR_GAUGE_IDS), None)
     confidence = round(min(90, max(35, 50 + abs(raw) * 80)), 1)
     return {
         "available": True,

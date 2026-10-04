@@ -14,3 +14,7 @@ google-genai>=1.0
 cachetools>=5.5
 # Observability — PRISM live tracing (LLM calls, latency, trajectories)
 prismtrace-sdk>=0.4.3
+
+# Tests — pytest config sets asyncio_mode, which requires the plugin.
+pytest>=8.0
+pytest-asyncio>=0.24

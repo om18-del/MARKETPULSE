@@ -1,4 +1,5 @@
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Newspaper } from 'lucide-react'
+import { EmptyState } from './EmptyState'
 import type { NewsArticle } from '../types'
 
 function sentimentChip(s?: number) {
@@ -9,7 +10,13 @@ function sentimentChip(s?: number) {
 }
 
 export function NewsList({ articles, showReason = true }: { articles: NewsArticle[]; showReason?: boolean }) {
-  if (!articles?.length) return <p className="muted" style={{ fontSize: 14 }}>No headlines available right now.</p>
+  if (!articles?.length) {
+    return (
+      <EmptyState icon={<Newspaper size={20} />} title="No headlines right now">
+        News feeds refresh on a delay and can go quiet during holidays. Try again in a few minutes.
+      </EmptyState>
+    )
+  }
   return (
     <div>
       {articles.map((a, i) => (

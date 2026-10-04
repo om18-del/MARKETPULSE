@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, AreaSeries, type IChartApi, type UTCTimestamp, type Time } from 'lightweight-charts'
+import { chartChrome, seriesColors } from '../themeTokens'
 
 type Bar = { time: string; close: number }
 
@@ -125,21 +126,22 @@ export function PriceChart({
   useEffect(() => {
     if (!ref.current) return
     if (points.length < 2) return
+    const chrome = chartChrome()
     const chart = createChart(ref.current, {
       height: 380,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#93a0b8',
-        fontFamily: 'Inter, system-ui, sans-serif',
+        textColor: chrome.text,
+        fontFamily: chrome.font,
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: 'rgba(147,160,184,0.08)' },
-        horzLines: { color: 'rgba(147,160,184,0.08)' },
+        vertLines: { color: chrome.grid },
+        horzLines: { color: chrome.grid },
       },
-      rightPriceScale: { borderColor: 'rgba(147,160,184,0.15)' },
+      rightPriceScale: { borderColor: chrome.border },
       timeScale: {
-        borderColor: 'rgba(147,160,184,0.15)',
+        borderColor: chrome.border,
         visible: true,
         timeVisible: tf === 'intraday', // show HH:mm for the intraday view
         secondsVisible: false,
@@ -154,10 +156,11 @@ export function PriceChart({
     const first = points[0].value
     const last = points[points.length - 1].value
     const rising = last >= first
+    const sc = seriesColors(rising)
     const series = chart.addSeries(AreaSeries, {
-      lineColor: rising ? '#34d399' : '#fb7185',
-      topColor: rising ? 'rgba(52,211,153,0.30)' : 'rgba(251,113,133,0.30)',
-      bottomColor: 'rgba(52,211,153,0.0)',
+      lineColor: sc.line,
+      topColor: sc.top,
+      bottomColor: sc.bottom,
       lineWidth: 2,
       priceLineVisible: false,
     })

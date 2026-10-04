@@ -39,6 +39,20 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 ARCHIVES = "https://nsearchives.nseindia.com"
 DHAN_MASTER = "https://images.dhan.co/api-data/api-scrip-master.csv"
+
+# The upstream scrip master ships exchange connectivity-test rows alongside real
+# listings (011NSETEST, 021NSETEST ... 181NSETEST, G1NSETEST, V1NSETEST, ...).
+# They are EQ-series, so they pass every other filter and surface in search as
+# "01INSTEST" — never tradeable, never present on a bhavcopy.
+_PLACEHOLDER_SYMBOL = re.compile(
+    r"NSETEST$|^(?:TEST|DUMMY|SAMPLE|ZZZZ)$",
+    re.IGNORECASE,
+)
+
+
+def _is_placeholder_symbol(sym: str) -> bool:
+    """True for upstream exchange test rows that must never be searchable."""
+    return bool(_PLACEHOLDER_SYMBOL.search(sym))
 NSE_WWW = "https://www.nseindia.com"
 
 _file_locks: dict[str, asyncio.Lock] = {}
@@ -447,7 +461,7 @@ def _parse_dhan(text: str) -> dict[str, dict[str, str]]:
         series = (r.get("SEM_SERIES") or "").upper()
         sym = (r.get("SEM_TRADING_SYMBOL") or "").upper()
         name = (r.get("SEM_CUSTOM_SYMBOL") or r.get("SM_SYMBOL_NAME") or sym).strip()
-        if not sym:
+        if not sym or _is_placeholder_symbol(sym):
             continue
         if exch == "NSE" and instr == "EQUITY" and series in ("EQ", "BE"):
             out["nse"].setdefault(sym, name)

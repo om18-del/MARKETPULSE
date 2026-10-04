@@ -201,7 +201,8 @@ async def asset_detail(instrument_id: str) -> dict[str, Any]:
     quote = None
     if closes:
         prev = closes[-2] if len(closes) > 1 else closes[-1]
-        quote = {"price": closes[-1], "change_pct": round((closes[-1] / prev - 1) * 100, 2) if prev else 0.0,
+        quote = {"price": closes[-1], "prev_close": prev,
+                 "change_pct": round((closes[-1] / prev - 1) * 100, 2) if prev else 0.0,
                  "provider": hist["provenance"]["provider"], "demo": used_demo}
 
     # Additive: best-effort "≈ delayed live" price from the exchange's own
@@ -214,15 +215,21 @@ async def asset_detail(instrument_id: str) -> dict[str, Any]:
         if ysym and inst.region == "india" and not ysym.startswith("^"):
             from .data.providers.yahoo import YahooChartProvider
             bars = await YahooChartProvider().fetch_bars(ysym, rng="1d", interval="5m")
-            if len(bars) >= 2:
-                last, prev_bar = bars[-1], bars[-2]
-                last_close, prev_close = float(last["close"]), float(prev_bar["close"])
+            if len(bars) >= 1:
+                last_close = float(bars[-1]["close"])
+                # The day's change must be measured against the PREVIOUS
+                # session's official close. bars[-2] is only the prior
+                # 5-minute bar, so using it reported a 5-minute drift that
+                # rounded to 0.00% and disagreed with every other surface.
+                prev_close = float(closes[-2]) if len(closes) > 1 else None
                 eod_price = closes[-1] if closes else None
-                if last_close > 0 and abs(last_close - (eod_price or last_close)) > 1e-9:
+                if (prev_close and last_close > 0
+                        and abs(last_close - (eod_price or last_close)) > 1e-9):
                     delayed_live = {
                         "price": round(last_close, 2),
+                        "prev_close": round(prev_close, 2),
                         "change_pct": round((last_close / prev_close - 1) * 100, 2),
-                        "bar_time": last.get("time") or last.get("date"),
+                        "bar_time": bars[-1].get("time") or bars[-1].get("date"),
                         "note": "≈ 15-min delayed exchange feed — fresher than the EOD official close",
                     }
     except Exception:
