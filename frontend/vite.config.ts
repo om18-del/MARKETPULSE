@@ -15,13 +15,13 @@ export default defineConfig({
         short_name: 'MarketPulse',
         description:
           'Educational market-literacy platform: deterministic math, explainable AI, evidence for every number. Not investment advice.',
-        theme_color: '#0b0f1a',
-        background_color: '#0b0f1a',
+        theme_color: '#0a0f13',
+        background_color: '#0a0f13',
         display: 'standalone',
         start_url: '/',
         icons: [
           {
-            src: 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'%3E%3Crect width=\'32\' height=\'32\' rx=\'8\' fill=\'%2322d3ee\'/%3E%3Cpath d=\'M4 18h5l3-8 4 14 3-10h9\' stroke=\'%23071018\' stroke-width=\'2.6\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E',
+            src: 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'%3E%3Crect width=\'32\' height=\'32\' rx=\'9\' fill=\'%2382e6b4\'/%3E%3Cpath d=\'M4 18h5l3-8 4 14 3-10h9\' stroke=\'%230a1710\' stroke-width=\'2.6\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E',
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any',

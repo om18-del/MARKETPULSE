@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Flame, Globe2, IndianRupee, LayoutGrid, Search as SearchIcon, TrendingDown, TrendingUp } from 'lucide-react'
+import { Activity, Flame, FlaskConical, Globe2, IndianRupee, LayoutGrid, Search as SearchIcon, TrendingDown, TrendingUp } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { api } from '../api'
 import type { GridEntry, Overview } from '../types'
@@ -40,6 +40,12 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
   const { data, loading, error, refetch } = useApi<Overview>('/api/overview')
   const watchlist = useWatchlist()
   const [showSearch, setShowSearch] = useState(true)
+  const snapshotDate = new Intl.DateTimeFormat('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date())
 
   // Real-time overlay: the overview grid is built on EOD history; this
   // endpoint returns the exchange's live quotes and we merge them over the
@@ -107,29 +113,22 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
   }
 
   return (
-    <div>
-      {/* New here? — three-step guide */}
-      <section className="section" style={{ marginTop: 22 }}>
-        <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, borderColor: 'color-mix(in srgb, var(--accent-a) 25%, var(--card-border))' }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>1 · Read the pulse</div>
-            <div className="faint" style={{ fontSize: 12.5 }}>India-first: NIFTY, Sensex and the NSE universe lead the read. The gauge blends them with global signals — computed by math, explained by AI.</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>2 · Search anything</div>
-            <div className="faint" style={{ fontSize: 12.5 }}>Press <kbd>Ctrl</kbd> <kbd>K</kbd> or use the search bar — every result opens the full overview: chart, verdict, evidence, AI thesis and news.</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-a)', marginBottom: 4 }}>3 · Demand the why</div>
-            <div className="faint" style={{ fontSize: 12.5 }}>Every verdict shows its factor table, weights and score equation. Select any text → the Pulse Assistant explains it simply. Never advice — always evidence.</div>
-          </div>
+    <div className="market-overview">
+      <header className="overview-heading">
+        <div>
+          <div className="overview-eyebrow"><span className="overview-eyebrow-dot" /> MARKET INTELLIGENCE <span className="overview-eyebrow-divider">/</span> GLOBAL + NSE</div>
+          <h1>Market overview</h1>
+          <p>A clearer read on what’s moving — and the signals behind it.</p>
         </div>
-      </section>
+        <div className="overview-date">
+          <span className="overview-date-icon"><Activity size={15} /></span>
+          <span><small>MARKET SNAPSHOT</small><strong>{snapshotDate}</strong></span>
+        </div>
+      </header>
 
       {/* Hero: the general market verdict */}
-      <section className="section" style={{ marginTop: 22 }}>
-        <div className="card" style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 340px) 1fr', gap: 26, alignItems: 'center', overflow: 'hidden', position: 'relative' }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(600px 200px at 20% 0%, rgba(34,211,238,0.07), transparent 60%)', pointerEvents: 'none' }} />
+      <section className="section overview-hero-section">
+        <div className="card overview-hero">
           {loading && !data ? (
             <>
               <CardSkeleton height={210} />
@@ -146,43 +145,46 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
                 score={data.global.score_0_100}
                 confidence={data.global.confidence}
               />
-              <div style={{ position: 'relative' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                  <Globe2 size={16} style={{ color: 'var(--accent-a)' }} />
-                  <h1 style={{ margin: 0, fontSize: 21 }}>Today's global market read</h1>
+              <div className="overview-hero-copy">
+                <div className="overview-hero-top">
+                  <span className="overview-hero-mark"><Globe2 size={17} /></span>
+                  <div className="overview-hero-heading">
+                    <span className="overview-hero-eyebrow">GLOBAL REGIME</span>
+                    <h2>Today’s global market read</h2>
+                  </div>
                   <span className={`chip ${data.data_mode === 'demo' ? 'demo' : 'pos'}`} style={{ marginLeft: 'auto' }}>
                     {data.data_mode === 'demo' ? 'DEMO DATA' : <><span className="updated-dot" /> live</>}
                   </span>
                 </div>
-                <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
+                <p className="muted overview-summary">
                   Blended from <b>{data.global.assets_used ?? '—'}</b> instruments across US, India, Europe,
                   Asia-Pacific, commodities and FX. {data.global.vix_score_0_100 != null
                     ? `Volatility sits at ${Math.round(data.global.vix_score_0_100)}/100 on the same scale.`
                     : ''}{' '}
-                  The full evidence — every factor, weight and rule — is one click away on each asset.
+                  Explore the evidence behind each asset’s read.
                 </p>
                 {data.breadth.available ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 14 }}>
-                    <div className="card" style={{ padding: '10px 13px' }}>
-                      <div className="faint">Above 50-day avg</div>
-                      <div className="num" style={{ fontSize: 19, fontWeight: 700 }}>{data.breadth.pct_above_sma50}%</div>
-                      <div className="faint">{data.breadth.meaning}</div>
+                  <div className="overview-stats">
+                    <div className="card overview-stat">
+                      <div className="overview-stat-label">Above 50-day average</div>
+                      <div className="overview-stat-value num">{data.breadth.pct_above_sma50}%</div>
+                      <div className="overview-stat-note">{data.breadth.meaning}</div>
                     </div>
-                    <div className="card" style={{ padding: '10px 13px' }}>
-                      <div className="faint">Advancers / Decliners</div>
-                      <div className="num" style={{ fontSize: 19, fontWeight: 700 }}>
+                    <div className="card overview-stat">
+                      <div className="overview-stat-label">Advancers / decliners</div>
+                      <div className="overview-stat-value num">
                         <span style={{ color: 'var(--pos)' }}>{data.breadth.advancers}</span>
                         <span className="faint"> / </span>
                         <span style={{ color: 'var(--neg)' }}>{data.breadth.decliners}</span>
                       </div>
-                      <div className="faint">across {data.breadth.assets_counted} assets</div>
+                      <div className="overview-stat-note">Across {data.breadth.assets_counted} assets</div>
                     </div>
-                    <div className="card" style={{ padding: '10px 13px' }}>
-                      <div className="faint">Avg day move</div>
-                      <div className="num" style={{ fontSize: 19, fontWeight: 700 }}>
+                    <div className="card overview-stat">
+                      <div className="overview-stat-label">Average day move</div>
+                      <div className="overview-stat-value num">
                         {((data.breadth.avg_day_change_pct ?? 0) >= 0 ? '+' : '') + (data.breadth.avg_day_change_pct ?? 0).toFixed(2)}%
                       </div>
-                      <div className="faint">{data.vix ? `VIX ${data.vix.price.toFixed(1)} (${data.vix.change_pct >= 0 ? '+' : ''}${data.vix.change_pct}%)` : ''}</div>
+                      <div className="overview-stat-note">{data.vix ? `VIX ${data.vix.price.toFixed(1)} (${data.vix.change_pct >= 0 ? '+' : ''}${data.vix.change_pct}%)` : 'Across tracked markets'}</div>
                     </div>
                   </div>
                 ) : null}
@@ -192,8 +194,29 @@ export function OverviewPage({ onExplain }: { onExplain: (t: string) => void }) 
         </div>
       </section>
 
+      <section className="section orientation-section" aria-label="How to read MarketPulse">
+        <div className="card orientation-card">
+          <div className="orientation-intro">
+            <span className="orientation-icon"><FlaskConical size={17} /></span>
+            <span><strong>Built for clarity</strong><small>Math first. Evidence always.</small></span>
+          </div>
+          <div className="orientation-point">
+            <span className="orientation-number">01</span>
+            <span><strong>Read the pulse</strong><small>Global signals + Indian breadth</small></span>
+          </div>
+          <div className="orientation-point">
+            <span className="orientation-number">02</span>
+            <span><strong>Search any instrument</strong><small>From NIFTY to NSE listings</small></span>
+          </div>
+          <div className="orientation-point">
+            <span className="orientation-number">03</span>
+            <span><strong>See the “why”</strong><small>Every read comes with evidence</small></span>
+          </div>
+        </div>
+      </section>
+
       {/* Search */}
-      <section className="section">
+      <section className="section overview-search-section">
         {showSearch ? (
           <SearchBar />
         ) : (
